@@ -91,6 +91,7 @@ from open_webui.routers import (
     knowledge,
     prompts,
     evaluations,
+    sharepoint,
     skills,
     tools,
     users,
@@ -347,6 +348,12 @@ from open_webui.config import (
     ONEDRIVE_SHAREPOINT_TENANT_ID,
     ENABLE_ONEDRIVE_PERSONAL,
     ENABLE_ONEDRIVE_BUSINESS,
+    # SharePoint Sync
+    ENABLE_SHAREPOINT_SYNC,
+    SHAREPOINT_TENANT_ID,
+    SHAREPOINT_CLIENT_ID,
+    SHAREPOINT_CLIENT_SECRET,
+    SHAREPOINT_SYNC_INTERVAL,
     ENABLE_RAG_HYBRID_SEARCH,
     ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS,
     ENABLE_RAG_LOCAL_WEB_FETCH,
@@ -693,6 +700,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             log.warning(f"Failed to initialize tool servers at startup: {e}")
 
+    # Start SharePoint periodic sync task
+    from open_webui.utils.sharepoint_sync import sharepoint_sync_periodic
+
+    asyncio.create_task(sharepoint_sync_periodic(app))
+
     yield
 
     if hasattr(app.state, "redis_task_command_listener"):
@@ -1034,6 +1046,18 @@ app.state.config.BYPASS_WEB_SEARCH_WEB_LOADER = BYPASS_WEB_SEARCH_WEB_LOADER
 
 app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION = ENABLE_GOOGLE_DRIVE_INTEGRATION
 app.state.config.ENABLE_ONEDRIVE_INTEGRATION = ENABLE_ONEDRIVE_INTEGRATION
+
+########################################
+#
+# SHAREPOINT SYNC
+#
+########################################
+
+app.state.config.ENABLE_SHAREPOINT_SYNC = ENABLE_SHAREPOINT_SYNC
+app.state.config.SHAREPOINT_TENANT_ID = SHAREPOINT_TENANT_ID
+app.state.config.SHAREPOINT_CLIENT_ID = SHAREPOINT_CLIENT_ID
+app.state.config.SHAREPOINT_CLIENT_SECRET = SHAREPOINT_CLIENT_SECRET
+app.state.config.SHAREPOINT_SYNC_INTERVAL = SHAREPOINT_SYNC_INTERVAL
 
 app.state.config.OLLAMA_CLOUD_WEB_SEARCH_API_KEY = OLLAMA_CLOUD_WEB_SEARCH_API_KEY
 app.state.config.SEARXNG_QUERY_URL = SEARXNG_QUERY_URL
@@ -1525,6 +1549,9 @@ app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
 
 app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
 app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
+app.include_router(
+    sharepoint.router, prefix="/api/v1/sharepoint", tags=["sharepoint"]
+)
 app.include_router(prompts.router, prefix="/api/v1/prompts", tags=["prompts"])
 app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
 app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"])

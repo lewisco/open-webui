@@ -156,7 +156,9 @@
 				'ocr',
 				'tika',
 				'docling',
-				'unstructured'
+				'unstructured',
+				'sharepoint',
+				'microsoft'
 			]
 		},
 		{

@@ -28,6 +28,7 @@
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Textarea from '$lib/components/common/Textarea.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import SharePoint from './SharePoint.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -65,6 +66,7 @@
 	};
 
 	let RAGConfig = null;
+	let sharePointRef: SharePoint;
 
 	const embeddingModelUpdateHandler = async () => {
 		if (RAG_EMBEDDING_ENGINE === '' && RAG_EMBEDDING_MODEL.split('/').length - 1 > 1) {
@@ -233,6 +235,9 @@
 					? JSON.parse(RAGConfig.MINERU_PARAMS)
 					: {}
 		});
+
+		await sharePointRef?.submit();
+
 		dispatch('save');
 	};
 
@@ -1460,6 +1465,8 @@
 							<Switch bind:state={RAGConfig.ENABLE_ONEDRIVE_INTEGRATION} />
 						</div>
 					</div>
+
+				<SharePoint bind:this={sharePointRef} />
 				</div>
 
 				<div class="mb-3">

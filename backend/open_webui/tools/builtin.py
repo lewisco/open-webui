@@ -1918,6 +1918,18 @@ async def query_knowledge_files(
                         chunk_info["distance"] = distances[idx]
                     chunks.append(chunk_info)
 
+        # Filter SharePoint-sourced chunks by user permissions
+        try:
+            from open_webui.utils.sharepoint_permissions import (
+                filter_by_sharepoint_permissions,
+            )
+
+            chunks = filter_by_sharepoint_permissions(
+                chunks, __user__, __request__.app
+            )
+        except Exception as e:
+            log.debug(f"SharePoint permission filter skipped: {e}")
+
         # Limit to requested count
         chunks = chunks[:count]
 

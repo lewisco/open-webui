@@ -4164,3 +4164,37 @@ LDAP_ATTRIBUTE_FOR_GROUPS = PersistentConfig(
     "ldap.server.attribute_for_groups",
     os.environ.get("LDAP_ATTRIBUTE_FOR_GROUPS", "memberOf"),
 )
+
+####################################
+# SharePoint Sync
+####################################
+
+ENABLE_SHAREPOINT_SYNC = PersistentConfig(
+    "ENABLE_SHAREPOINT_SYNC",
+    "sharepoint.enable",
+    os.environ.get("ENABLE_SHAREPOINT_SYNC", "False").lower() == "true",
+)
+
+SHAREPOINT_TENANT_ID = PersistentConfig(
+    "SHAREPOINT_TENANT_ID",
+    "sharepoint.tenant_id",
+    os.environ.get("SHAREPOINT_TENANT_ID", ""),
+)
+
+SHAREPOINT_CLIENT_ID = PersistentConfig(
+    "SHAREPOINT_CLIENT_ID",
+    "sharepoint.client_id",
+    os.environ.get("SHAREPOINT_CLIENT_ID", ""),
+)
+
+SHAREPOINT_CLIENT_SECRET = PersistentConfig(
+    "SHAREPOINT_CLIENT_SECRET",
+    "sharepoint.client_secret",
+    os.environ.get("SHAREPOINT_CLIENT_SECRET", ""),
+)
+
+SHAREPOINT_SYNC_INTERVAL = PersistentConfig(
+    "SHAREPOINT_SYNC_INTERVAL",
+    "sharepoint.sync_interval",
+    int(os.environ.get("SHAREPOINT_SYNC_INTERVAL", "900")),
+)

@@ -856,6 +856,16 @@ def remove_file_from_knowledge_by_id(
         log.debug(e)
         pass
 
+    # Mark SharePoint file as excluded so sync doesn't re-add it
+    try:
+        from open_webui.models.sharepoint import SharePoints
+
+        sp_file = SharePoints.get_file_by_owui_id(form_data.file_id, db=db)
+        if sp_file:
+            SharePoints.mark_file_excluded(sp_file.id, db=db)
+    except Exception:
+        pass
+
     if delete_file:
         try:
             # Remove the file's collection from vector database
