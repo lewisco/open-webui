@@ -117,19 +117,29 @@ def filter_by_sharepoint_permissions(
         Filtered list of chunks the user has access to.
     """
     if not chunks:
+        log.info("SharePoint filter: no chunks to filter")
         return chunks
 
     # Collect unique file_ids from chunks
     file_ids = {c.get("file_id") for c in chunks if c.get("file_id")}
     if not file_ids:
+        log.info(
+            f"SharePoint filter: {len(chunks)} chunks but none have file_id"
+        )
         return chunks
 
     try:
         from open_webui.models.sharepoint import SharePoints
 
+        log.info(
+            f"SharePoint filter: {len(chunks)} chunks, "
+            f"{len(file_ids)} unique file_ids: {file_ids}"
+        )
+
         # Batch lookup: get SharePoint file records for these file_ids
         sp_file_list = SharePoints.get_files_by_owui_ids(list(file_ids))
         if not sp_file_list:
+            log.info("SharePoint filter: no SP file records found — passing all chunks through")
             return chunks
 
         sp_files = {f.owui_file_id: f for f in sp_file_list}
@@ -147,6 +157,7 @@ def filter_by_sharepoint_permissions(
         }
 
         if not filter_sites:
+            log.info("SharePoint filter: no filter-mode sites — passing all chunks through")
             return chunks
 
         # We need to check permissions — get user info
