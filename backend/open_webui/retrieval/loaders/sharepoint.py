@@ -241,11 +241,9 @@ class SharePointGraphClient:
 
             if "group" in granted:
                 group_info = granted["group"]
-                group_name = group_info.get("displayName") or group_info.get(
-                    "email", ""
-                )
-                if group_name:
-                    groups.append(group_name)
+                group_id = group_info.get("id", "")
+                if group_id:
+                    groups.append(group_id)
 
             # Handle shared links with scope
             if "link" in perm:
@@ -258,9 +256,9 @@ class SharePointGraphClient:
 
     def get_user_group_memberships(self, user_email: str) -> list[str]:
         """
-        Get group display names for a user via Microsoft Graph.
+        Get group Object IDs for a user via Microsoft Graph.
         Requires User.Read.All or GroupMember.Read.All app permission.
-        Returns list of group displayName strings.
+        Returns list of group Object ID (UUID) strings.
         """
         url = f"{self.GRAPH_BASE}/users/{user_email}/memberOf"
         resp = requests.get(url, headers=self._headers(), timeout=self.METADATA_TIMEOUT)
@@ -275,9 +273,9 @@ class SharePointGraphClient:
                 "#microsoft.graph.group",
                 "#microsoft.graph.unifiedGroup",
             ):
-                display_name = member.get("displayName", "")
-                if display_name:
-                    groups.append(display_name)
+                group_id = member.get("id", "")
+                if group_id:
+                    groups.append(group_id)
 
         return groups
 

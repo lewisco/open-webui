@@ -168,6 +168,7 @@ def sync_site(app, site_config) -> dict:
                 item_id = item.get("id", "")
                 item_name = item.get("name", "")
                 item_path = SharePointGraphClient.get_item_path(item)
+                file_id = None
 
                 # Handle deleted items
                 if item.get("deleted"):
@@ -349,6 +350,22 @@ def sync_site(app, site_config) -> dict:
 
             except Exception as e:
                 log.exception(f"Error processing item {item.get('name', '?')}: {e}")
+                # Track the error so it's visible in the UI — same upsert
+                # pattern as the embedding and permission-fetch error handlers.
+                if item_id and "file" in item:
+                    SharePoints.upsert_file(
+                        site_config.id,
+                        item_id,
+                        {
+                            "owui_file_id": file_id,
+                            "filename": item_name,
+                            "sp_item_path": item_path,
+                            "sp_etag": item.get("eTag", ""),
+                            "sp_last_modified": item.get("lastModifiedDateTime", ""),
+                            "sync_status": "error",
+                            "sync_error": str(e)[:500],
+                        },
+                    )
                 stats["errors"] += 1
 
         # Update site metadata

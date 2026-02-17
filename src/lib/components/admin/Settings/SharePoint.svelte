@@ -666,7 +666,11 @@
 									</div>
 									<div class="text-xs text-gray-500">
 										{site.drive_name || site.drive_id} &middot;
-										{site.file_count} {$i18n.t('files')} &middot;
+										{site.file_count + site.error_count} {$i18n.t('files')}
+										{#if site.error_count > 0}
+											({site.error_count} {$i18n.t('failed')})
+										{/if}
+										&middot;
 										{$i18n.t('Last sync')}: {formatTimestamp(site.last_sync_at)}
 										{#if site.sync_mode === 'filter'}
 											&middot; <span class="text-blue-500">{$i18n.t('ACL Filtered')}</span>
