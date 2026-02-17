@@ -1,4 +1,5 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
+import { splitStream } from '$lib/utils';
 
 const SHAREPOINT_API_BASE = `${WEBUI_API_BASE_URL}/sharepoint`;
 
@@ -326,4 +327,59 @@ export const triggerSharePointSync = async (
 
 	if (error) throw error;
 	return res;
+};
+
+export const triggerSharePointSyncStream = async (
+	token: string,
+	siteId?: string,
+	force: boolean = false,
+	clearExclusions: boolean = false,
+	onEvent?: (event: Record<string, unknown>) => void
+) => {
+	const res = await fetch(`${SHAREPOINT_API_BASE}/sync/stream`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			site_id: siteId || null,
+			force,
+			clear_exclusions: clearExclusions
+		})
+	});
+
+	if (!res.ok) {
+		const err = await res.json();
+		throw err.detail || 'Sync stream failed';
+	}
+
+	const reader = res.body!
+		.pipeThrough(new TextDecoderStream())
+		.pipeThrough(splitStream('\n'))
+		.getReader();
+
+	let lastEvent: Record<string, unknown> | null = null;
+
+	while (true) {
+		const { value, done } = await reader.read();
+		if (done) break;
+
+		const lines = value.split('\n');
+		for (const line of lines) {
+			if (!line.startsWith('data: ')) continue;
+			const data = line.slice(6);
+			if (data === '[DONE]') return lastEvent;
+
+			try {
+				const event = JSON.parse(data);
+				lastEvent = event;
+				onEvent?.(event);
+			} catch {
+				// skip malformed lines
+			}
+		}
+	}
+
+	return lastEvent;
 };

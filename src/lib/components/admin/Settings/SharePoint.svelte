@@ -10,6 +10,7 @@
 		listSharePointDrives,
 		listSharePointItems,
 		triggerSharePointSync,
+		triggerSharePointSyncStream,
 		retrySharePointErrors,
 		getSharePointSiteFiles
 	} from '$lib/apis/sharepoint';
@@ -58,6 +59,7 @@
 
 	// Sync state
 	let syncingSiteId: string | null = null;
+	let syncProgress: { current: number; total: number; filename: string } | null = null;
 
 	// Files panel state
 	let expandedFilesSiteId: string | null = null;
@@ -243,18 +245,36 @@
 
 	const handleSync = async (siteId: string, force = false, clearExcl = false) => {
 		syncingSiteId = siteId;
+		syncProgress = null;
 		try {
-			const result = await triggerSharePointSync(localStorage.token, siteId, force, clearExcl);
-			if (result) {
-				const siteResult = result.sites?.[0];
-				if (siteResult?.error) {
-					toast.error(`Sync error: ${siteResult.error}`);
-				} else if (siteResult?.stats) {
-					const s = siteResult.stats;
-					toast.success(
-						`Synced: ${s.added} added, ${s.updated} updated, ${s.skipped} skipped, ${s.deleted} deleted, ${s.errors} errors`
-					);
+			const lastEvent = await triggerSharePointSyncStream(
+				localStorage.token,
+				siteId,
+				force,
+				clearExcl,
+				(event: Record<string, unknown>) => {
+					if (event.type === 'discovery') {
+						syncProgress = {
+							current: 0,
+							total: (event.total_items as number) ?? 0,
+							filename: ''
+						};
+					} else if (event.type === 'progress') {
+						syncProgress = {
+							current: (event.current as number) ?? 0,
+							total: (event.total as number) ?? 0,
+							filename: (event.filename as string) ?? ''
+						};
+					} else if (event.type === 'error') {
+						toast.error(`Sync error: ${event.error}`);
+					}
 				}
+			);
+			if (lastEvent?.type === 'complete' && lastEvent.stats) {
+				const s = lastEvent.stats as Record<string, number>;
+				toast.success(
+					`Synced: ${s.added} added, ${s.updated} updated, ${s.skipped} skipped, ${s.deleted} deleted, ${s.errors} errors`
+				);
 			}
 			// Clear cached files so they reload with fresh data
 			delete siteFiles[siteId];
@@ -265,6 +285,7 @@
 			toast.error(typeof e === 'string' ? e : 'Sync failed');
 		}
 		syncingSiteId = null;
+		syncProgress = null;
 	};
 
 	const handleRetryErrors = async (siteId: string) => {
@@ -679,8 +700,17 @@
 								</div>
 								<div class="flex items-center gap-1">
 									{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
-										<span class="text-xs text-blue-600">
-											{$i18n.t('Syncing...')}
+										<span class="text-xs text-blue-600 text-right max-w-[200px]">
+											{#if syncProgress && syncingSiteId === site.id && syncProgress.total > 0}
+												{syncProgress.current}/{syncProgress.total}
+												{#if syncProgress.filename}
+													&mdash; <span class="inline-block max-w-[120px] truncate align-bottom">{syncProgress.filename}</span>
+												{/if}
+											{:else if syncProgress && syncingSiteId === site.id}
+												{$i18n.t('Discovering files...')}
+											{:else}
+												{$i18n.t('Syncing...')}
+											{/if}
 										</span>
 									{:else if site.sync_status === 'error'}
 										<Tooltip content={site.sync_error || 'Unknown error'}>

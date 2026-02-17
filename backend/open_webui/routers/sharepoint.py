@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -441,3 +442,23 @@ async def trigger_sharepoint_sync(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ERROR_MESSAGES.DEFAULT("Sync operation failed."),
         )
+
+
+@router.post("/sync/stream")
+async def trigger_sharepoint_sync_stream(
+    request: Request,
+    form_data: SharePointSyncForm,
+    user=Depends(get_admin_user),
+):
+    """Trigger SharePoint sync with SSE progress streaming."""
+    from open_webui.utils.sharepoint_sync import trigger_sync_stream
+
+    return StreamingResponse(
+        trigger_sync_stream(
+            app=request.app,
+            site_id=form_data.site_id,
+            force=form_data.force,
+            clear_exclusions=form_data.clear_exclusions,
+        ),
+        media_type="text/event-stream",
+    )

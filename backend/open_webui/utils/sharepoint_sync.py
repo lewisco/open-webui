@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import logging
 import mimetypes
 import time
@@ -131,12 +132,14 @@ def _process_and_embed_file(app, file_id: str, kb_id: str):
             raise
 
 
-def sync_site(app, site_config) -> dict:
+def sync_site_stream(app, site_config):
     """
-    Sync a single SharePoint site.
-    Returns stats dict: {added, updated, skipped, deleted, errors}
+    Generator that syncs a single SharePoint site, yielding progress events.
+    Events: discovery, progress, complete, error.
     """
     stats = {"added": 0, "updated": 0, "skipped": 0, "deleted": 0, "errors": 0}
+    site_id = site_config.id
+    site_name = site_config.site_name or site_config.site_id
 
     config = app.state.config
     allowed_extensions = getattr(config, "ALLOWED_FILE_EXTENSIONS", None)
@@ -144,7 +147,7 @@ def sync_site(app, site_config) -> dict:
 
     try:
         # Mark as syncing
-        SharePoints.update_site(site_config.id, {"sync_status": "syncing", "sync_error": None})
+        SharePoints.update_site(site_id, {"sync_status": "syncing", "sync_error": None})
 
         client = SharePointGraphClient(
             tenant_id=config.SHAREPOINT_TENANT_ID,
@@ -159,21 +162,29 @@ def sync_site(app, site_config) -> dict:
         )
 
         log.info(
-            f"SharePoint sync for '{site_config.site_name}': "
+            f"SharePoint sync for '{site_name}': "
             f"{len(items)} delta items"
         )
 
-        for item in items:
+        yield {
+            "type": "discovery",
+            "site_id": site_id,
+            "site_name": site_name,
+            "total_items": len(items),
+        }
+
+        for idx, item in enumerate(items, 1):
+            item_id = item.get("id", "")
+            item_name = item.get("name", "")
+            action = "skipped"
             try:
-                item_id = item.get("id", "")
-                item_name = item.get("name", "")
                 item_path = SharePointGraphClient.get_item_path(item)
                 file_id = None
 
                 # Handle deleted items
                 if item.get("deleted"):
                     tracked = SharePoints.get_file_by_sp_item_id(
-                        site_config.id, item_id
+                        site_id, item_id
                     )
                     if tracked and tracked.owui_file_id:
                         _cleanup_vector_entries(site_config.kb_id, tracked.owui_file_id)
@@ -183,23 +194,64 @@ def sync_site(app, site_config) -> dict:
 
                         # Remove tracking record
                         SharePoints.delete_file_by_sp_item_id(
-                            site_config.id, item_id
+                            site_id, item_id
                         )
                         stats["deleted"] += 1
+                        action = "deleted"
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": action,
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Skip folders
                 if "folder" in item:
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "skipped",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Skip non-file items (packages, etc.)
                 if "file" not in item:
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "skipped",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Selection filter
                 if not _is_within_selection(
                     item_path, site_config.selected_items
                 ):
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "skipped",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # File type/size check
@@ -208,14 +260,34 @@ def sync_site(app, site_config) -> dict:
                     item_name, item_size, allowed_extensions, max_size
                 ):
                     stats["skipped"] += 1
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "skipped",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Exclusion check
                 tracked = SharePoints.get_file_by_sp_item_id(
-                    site_config.id, item_id
+                    site_id, item_id
                 )
                 if tracked and tracked.excluded:
                     stats["skipped"] += 1
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "skipped",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Check if file changed (via eTag)
@@ -228,7 +300,7 @@ def sync_site(app, site_config) -> dict:
                                 site_config.drive_id, item_id
                             )
                             SharePoints.upsert_file(
-                                site_config.id,
+                                site_id,
                                 item_id,
                                 {
                                     "allowed_users": perms.get("users", []),
@@ -239,6 +311,16 @@ def sync_site(app, site_config) -> dict:
                             log.warning(
                                 f"Permission refresh failed for {item_name}: {e}"
                             )
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "skipped",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Download file
@@ -266,7 +348,7 @@ def sync_site(app, site_config) -> dict:
                             "content_type": content_type,
                             "size": len(content),
                             "data": {
-                                "sharepoint_site_id": site_config.id,
+                                "sharepoint_site_id": site_id,
                                 "sharepoint_item_id": item_id,
                             },
                         },
@@ -276,6 +358,16 @@ def sync_site(app, site_config) -> dict:
                 if not file_record:
                     log.error(f"Failed to create file record for {item_name}")
                     stats["errors"] += 1
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "error",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Add file to KB
@@ -292,7 +384,7 @@ def sync_site(app, site_config) -> dict:
                     log.error(f"Embedding failed for {item_name}: {e}")
                     # File is created but embedding failed — mark as error
                     SharePoints.upsert_file(
-                        site_config.id,
+                        site_id,
                         item_id,
                         {
                             "owui_file_id": file_id,
@@ -305,6 +397,16 @@ def sync_site(app, site_config) -> dict:
                         },
                     )
                     stats["errors"] += 1
+                    yield {
+                        "type": "progress",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "current": idx,
+                        "total": len(items),
+                        "filename": item_name,
+                        "action": "error",
+                        "stats": dict(stats),
+                    }
                     continue
 
                 # Get permissions if site uses filter mode
@@ -324,7 +426,7 @@ def sync_site(app, site_config) -> dict:
                         # In filter mode, never store a file without permissions —
                         # it would be readable by everyone.
                         SharePoints.upsert_file(
-                            site_config.id,
+                            site_id,
                             item_id,
                             {
                                 "owui_file_id": file_id,
@@ -337,11 +439,21 @@ def sync_site(app, site_config) -> dict:
                             },
                         )
                         stats["errors"] += 1
+                        yield {
+                            "type": "progress",
+                            "site_id": site_id,
+                            "site_name": site_name,
+                            "current": idx,
+                            "total": len(items),
+                            "filename": item_name,
+                            "action": "error",
+                            "stats": dict(stats),
+                        }
                         continue
 
                 # Upsert tracking record
                 SharePoints.upsert_file(
-                    site_config.id,
+                    site_id,
                     item_id,
                     {
                         "owui_file_id": file_id,
@@ -362,8 +474,10 @@ def sync_site(app, site_config) -> dict:
                         _cleanup_vector_entries(site_config.kb_id, tracked.owui_file_id)
                         Files.delete_file_by_id(tracked.owui_file_id)
                     stats["updated"] += 1
+                    action = "updated"
                 else:
                     stats["added"] += 1
+                    action = "added"
 
             except Exception as e:
                 log.exception(f"Error processing item {item.get('name', '?')}: {e}")
@@ -371,7 +485,7 @@ def sync_site(app, site_config) -> dict:
                 # pattern as the embedding and permission-fetch error handlers.
                 if item_id and "file" in item:
                     SharePoints.upsert_file(
-                        site_config.id,
+                        site_id,
                         item_id,
                         {
                             "owui_file_id": file_id,
@@ -384,10 +498,22 @@ def sync_site(app, site_config) -> dict:
                         },
                     )
                 stats["errors"] += 1
+                action = "error"
+
+            yield {
+                "type": "progress",
+                "site_id": site_id,
+                "site_name": site_name,
+                "current": idx,
+                "total": len(items),
+                "filename": item_name,
+                "action": action,
+                "stats": dict(stats),
+            }
 
         # Update site metadata
         SharePoints.update_site(
-            site_config.id,
+            site_id,
             {
                 "delta_link": new_delta_link,
                 "last_sync_at": int(time.time()),
@@ -396,18 +522,41 @@ def sync_site(app, site_config) -> dict:
             },
         )
 
+        yield {
+            "type": "complete",
+            "site_id": site_id,
+            "site_name": site_name,
+            "stats": dict(stats),
+        }
+
     except Exception as e:
-        log.exception(f"Sync failed for site {site_config.id}: {e}")
+        log.exception(f"Sync failed for site {site_id}: {e}")
         SharePoints.update_site(
-            site_config.id,
+            site_id,
             {
                 "sync_status": "error",
                 "sync_error": str(e)[:500],
             },
         )
-        raise
+        yield {
+            "type": "error",
+            "site_id": site_id,
+            "site_name": site_name,
+            "error": str(e)[:500],
+        }
 
-    return stats
+
+def sync_site(app, site_config) -> dict:
+    """
+    Sync a single SharePoint site (non-streaming).
+    Returns stats dict: {added, updated, skipped, deleted, errors}
+    """
+    last_event = None
+    for event in sync_site_stream(app, site_config):
+        last_event = event
+    if last_event and last_event["type"] == "error":
+        raise Exception(last_event["error"])
+    return last_event.get("stats", {}) if last_event else {}
 
 
 def retry_error_files(app, site_config) -> dict:
@@ -513,6 +662,63 @@ async def trigger_sync(
             )
 
     return {"sites": results}
+
+
+async def trigger_sync_stream(
+    app,
+    site_id: Optional[str] = None,
+    force: bool = False,
+    clear_exclusions: bool = False,
+):
+    """
+    Async generator that triggers SharePoint sync and yields SSE-formatted events.
+    Bridges the synchronous sync_site_stream() generator to async via asyncio.Queue.
+    """
+    if site_id:
+        sites = [SharePoints.get_site_by_id(site_id)]
+        if not sites[0]:
+            yield f"data: {json.dumps({'type': 'error', 'site_id': site_id, 'site_name': '', 'error': f'Site {site_id} not found'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+    else:
+        sites = SharePoints.get_sites()
+
+    for site in sites:
+        if clear_exclusions:
+            SharePoints.clear_exclusions_by_site(site.id)
+
+        if force:
+            SharePoints.update_site(site.id, {"delta_link": None})
+            site = SharePoints.get_site_by_id(site.id)
+
+        queue = asyncio.Queue()
+
+        def _run_sync(app_ref, site_ref, q):
+            try:
+                for event in sync_site_stream(app_ref, site_ref):
+                    q.put_nowait(event)
+            except Exception as e:
+                q.put_nowait({
+                    "type": "error",
+                    "site_id": site_ref.id,
+                    "site_name": site_ref.site_name or site_ref.site_id,
+                    "error": str(e)[:500],
+                })
+            finally:
+                q.put_nowait(None)  # sentinel
+
+        loop = asyncio.get_event_loop()
+        fut = loop.run_in_executor(None, _run_sync, app, site, queue)
+
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield f"data: {json.dumps(event)}\n\n"
+
+        await fut
+
+    yield "data: [DONE]\n\n"
 
 
 async def sharepoint_sync_periodic(app):
