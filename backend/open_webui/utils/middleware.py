@@ -1823,6 +1823,18 @@ async def chat_completion_files_handler(
 
         log.debug(f"rag_contexts:sources: {sources}")
 
+        # Filter SharePoint-sourced chunks by user permissions
+        try:
+            from open_webui.utils.sharepoint_permissions import (
+                filter_sources_by_sharepoint_permissions,
+            )
+
+            sources = filter_sources_by_sharepoint_permissions(
+                sources, user, request.app
+            )
+        except Exception as e:
+            log.debug(f"SharePoint permission filter skipped: {e}")
+
         unique_ids = set()
         for source in sources or []:
             if not source or len(source.keys()) == 0:
