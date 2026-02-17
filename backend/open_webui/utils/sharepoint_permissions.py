@@ -11,6 +11,7 @@ user's email and group memberships (resolved via Microsoft Graph API).
 """
 
 import logging
+import os
 import threading
 import time
 from typing import Optional
@@ -20,7 +21,7 @@ log = logging.getLogger(__name__)
 # In-memory cache for user group memberships: {email: (groups, timestamp)}
 _group_cache: dict[str, tuple[list[str], float]] = {}
 _group_cache_lock = threading.Lock()
-_GROUP_CACHE_TTL = 300  # 5 minutes
+_GROUP_CACHE_TTL = int(os.environ.get("SHAREPOINT_GROUP_CACHE_TTL", "300"))  # seconds
 
 
 def _get_user_groups(app, user_email: str) -> list[str]:
