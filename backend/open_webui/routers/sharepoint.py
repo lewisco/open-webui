@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.internal.db import get_session
+from open_webui.models.files import Files
 from open_webui.models.knowledge import KnowledgeForm, Knowledges
 from open_webui.models.sharepoint import (
     SharePointConfigForm,
@@ -18,6 +19,7 @@ from open_webui.models.sharepoint import (
     SharePoints,
 )
 from open_webui.retrieval.loaders.sharepoint import SharePointGraphClient
+from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 from open_webui.utils.auth import get_admin_user
 
 log = logging.getLogger(__name__)
@@ -269,7 +271,7 @@ async def delete_sharepoint_site(
     user=Depends(get_admin_user),
     db: Session = Depends(get_session),
 ):
-    """Remove a SharePoint site configuration."""
+    """Remove a SharePoint site configuration and all associated resources."""
     site = SharePoints.get_site_by_id(id, db=db)
     if not site:
         raise HTTPException(
@@ -277,7 +279,40 @@ async def delete_sharepoint_site(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    # Delete the site (files cascade via FK)
+    kb_id = site.kb_id
+
+    # 1. Clean up OWUI files and their vector entries
+    sp_files = SharePoints.get_files_by_site(id, limit=1000, db=db)
+    for sp_file in sp_files:
+        if sp_file.owui_file_id:
+            try:
+                VECTOR_DB_CLIENT.delete(
+                    collection_name=kb_id,
+                    filter={"file_id": sp_file.owui_file_id},
+                )
+            except Exception as e:
+                log.debug(f"Vector cleanup for {sp_file.owui_file_id}: {e}")
+            Files.delete_file_by_id(sp_file.owui_file_id)
+
+    # 2. Delete the KB vector collection and metadata embedding
+    if kb_id:
+        try:
+            VECTOR_DB_CLIENT.delete_collection(collection_name=kb_id)
+        except Exception as e:
+            log.debug(f"KB collection cleanup: {e}")
+
+        try:
+            from open_webui.routers.knowledge import (
+                remove_knowledge_base_metadata_embedding,
+            )
+
+            remove_knowledge_base_metadata_embedding(kb_id)
+        except Exception as e:
+            log.debug(f"KB metadata embedding cleanup: {e}")
+
+        Knowledges.delete_knowledge_by_id(id=kb_id, db=db)
+
+    # 3. Delete the SharePoint site records (files cascade via FK)
     success = SharePoints.delete_site_by_id(id, db=db)
     if not success:
         raise HTTPException(

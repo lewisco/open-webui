@@ -47,11 +47,17 @@ def _get_user_groups(app, user_email: str) -> list[str]:
 
         client = SharePointGraphClient(tenant_id, client_id, client_secret)
         groups = client.get_user_group_memberships(user_email)
+        log.debug(
+            f"SharePoint filter: resolved {len(groups)} groups for {user_email}"
+        )
         with _group_cache_lock:
             _group_cache[user_email] = (groups, now)
         return groups
     except Exception as e:
-        log.debug(f"Failed to get group memberships for {user_email}: {e}")
+        log.warning(
+            f"SharePoint filter: failed to get group memberships for "
+            f"{user_email}: {e} — user will have no group-based access"
+        )
         return []
 
 

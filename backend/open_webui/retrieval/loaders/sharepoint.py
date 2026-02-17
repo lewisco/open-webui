@@ -259,23 +259,26 @@ class SharePointGraphClient:
         Get group Object IDs for a user via Microsoft Graph.
         Requires User.Read.All or GroupMember.Read.All app permission.
         Returns list of group Object ID (UUID) strings.
+        Uses transitiveMemberOf to include nested group memberships.
         """
-        url = f"{self.GRAPH_BASE}/users/{user_email}/memberOf"
-        resp = requests.get(url, headers=self._headers(), timeout=self.METADATA_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-
+        url = f"{self.GRAPH_BASE}/users/{user_email}/transitiveMemberOf"
         groups = []
-        for member in data.get("value", []):
-            # Only include groups (not roles or other directory objects)
-            odata_type = member.get("@odata.type", "")
-            if odata_type in (
-                "#microsoft.graph.group",
-                "#microsoft.graph.unifiedGroup",
-            ):
-                group_id = member.get("id", "")
-                if group_id:
-                    groups.append(group_id)
+
+        while url:
+            resp = requests.get(
+                url, headers=self._headers(), timeout=self.METADATA_TIMEOUT
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            for member in data.get("value", []):
+                # Only include groups (not roles or other directory objects)
+                if member.get("@odata.type", "") == "#microsoft.graph.group":
+                    group_id = member.get("id", "")
+                    if group_id:
+                        groups.append(group_id)
+
+            url = data.get("@odata.nextLink")
 
         return groups
 

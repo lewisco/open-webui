@@ -221,7 +221,24 @@ def sync_site(app, site_config) -> dict:
                 # Check if file changed (via eTag)
                 item_etag = item.get("eTag", "")
                 if tracked and tracked.sp_etag == item_etag and tracked.sync_status == "synced":
-                    # No change
+                    # File unchanged — but still refresh permissions in filter mode
+                    if site_config.sync_mode == "filter":
+                        try:
+                            perms = client.get_item_permissions(
+                                site_config.drive_id, item_id
+                            )
+                            SharePoints.upsert_file(
+                                site_config.id,
+                                item_id,
+                                {
+                                    "allowed_users": perms.get("users", []),
+                                    "allowed_groups": perms.get("groups", []),
+                                },
+                            )
+                        except Exception as e:
+                            log.warning(
+                                f"Permission refresh failed for {item_name}: {e}"
+                            )
                     continue
 
                 # Download file
