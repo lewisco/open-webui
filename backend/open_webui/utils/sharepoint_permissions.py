@@ -32,6 +32,10 @@ def _get_user_groups(app, user_email: str) -> list[str]:
     with _group_cache_lock:
         cached = _group_cache.get(user_email)
         if cached and (now - cached[1]) < _GROUP_CACHE_TTL:
+            log.info(
+                f"SharePoint filter: group cache hit for {user_email}, "
+                f"{len(cached[0])} groups"
+            )
             return cached[0]
 
     try:
@@ -47,8 +51,9 @@ def _get_user_groups(app, user_email: str) -> list[str]:
 
         client = SharePointGraphClient(tenant_id, client_id, client_secret)
         groups = client.get_user_group_memberships(user_email)
-        log.debug(
-            f"SharePoint filter: resolved {len(groups)} groups for {user_email}"
+        log.info(
+            f"SharePoint filter: resolved {len(groups)} groups for "
+            f"{user_email}: {groups}"
         )
         with _group_cache_lock:
             _group_cache[user_email] = (groups, now)
@@ -146,6 +151,10 @@ def filter_by_sharepoint_permissions(
 
         # We need to check permissions — get user info
         user_email = user.get("email", "")
+        log.info(
+            f"SharePoint filter: checking permissions for user_email='{user_email}', "
+            f"{len(chunks)} chunks, {len(sp_files)} SP files in filter-mode sites"
+        )
         if not user_email:
             # No email = can't verify identity, block filter-mode files
             log.warning(
@@ -180,18 +189,22 @@ def filter_by_sharepoint_permissions(
                 continue
 
             # Check permissions
-            if _check_user_access(
-                allowed_users=sp_file.allowed_users or [],
-                allowed_groups=sp_file.allowed_groups or [],
+            au = sp_file.allowed_users or []
+            ag = sp_file.allowed_groups or []
+            has_access = _check_user_access(
+                allowed_users=au,
+                allowed_groups=ag,
                 user_email=user_email,
                 user_groups=user_groups,
-            ):
+            )
+            log.info(
+                f"SharePoint filter: {'GRANTED' if has_access else 'DENIED'} "
+                f"file={sp_file.filename} user={user_email} "
+                f"allowed_users={au} allowed_groups={ag} "
+                f"user_groups={user_groups}"
+            )
+            if has_access:
                 filtered.append(chunk)
-            else:
-                log.debug(
-                    f"SharePoint filter: blocked file {sp_file.filename} "
-                    f"for user {user_email}"
-                )
 
         return filtered
     except Exception as e:
