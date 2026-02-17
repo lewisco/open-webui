@@ -1928,7 +1928,7 @@ async def query_knowledge_files(
                 chunks, __user__, __request__.app
             )
         except Exception as e:
-            log.info(f"SharePoint permission filter skipped: {e}")
+            log.debug(f"SharePoint permission filter skipped: {e}")
 
         # Limit to requested count
         chunks = chunks[:count]

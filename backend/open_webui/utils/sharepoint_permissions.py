@@ -32,7 +32,7 @@ def _get_user_groups(app, user_email: str) -> list[str]:
     with _group_cache_lock:
         cached = _group_cache.get(user_email)
         if cached and (now - cached[1]) < _GROUP_CACHE_TTL:
-            log.info(
+            log.debug(
                 f"SharePoint filter: group cache hit for {user_email}, "
                 f"{len(cached[0])} groups"
             )
@@ -51,7 +51,7 @@ def _get_user_groups(app, user_email: str) -> list[str]:
 
         client = SharePointGraphClient(tenant_id, client_id, client_secret)
         groups = client.get_user_group_memberships(user_email)
-        log.info(
+        log.debug(
             f"SharePoint filter: resolved {len(groups)} groups for "
             f"{user_email}: {groups}"
         )
@@ -117,13 +117,13 @@ def filter_by_sharepoint_permissions(
         Filtered list of chunks the user has access to.
     """
     if not chunks:
-        log.info("SharePoint filter: no chunks to filter")
+        log.debug("SharePoint filter: no chunks to filter")
         return chunks
 
     # Collect unique file_ids from chunks
     file_ids = {c.get("file_id") for c in chunks if c.get("file_id")}
     if not file_ids:
-        log.info(
+        log.debug(
             f"SharePoint filter: {len(chunks)} chunks but none have file_id"
         )
         return chunks
@@ -131,7 +131,7 @@ def filter_by_sharepoint_permissions(
     try:
         from open_webui.models.sharepoint import SharePoints
 
-        log.info(
+        log.debug(
             f"SharePoint filter: {len(chunks)} chunks, "
             f"{len(file_ids)} unique file_ids: {file_ids}"
         )
@@ -139,7 +139,7 @@ def filter_by_sharepoint_permissions(
         # Batch lookup: get SharePoint file records for these file_ids
         sp_file_list = SharePoints.get_files_by_owui_ids(list(file_ids))
         if not sp_file_list:
-            log.info("SharePoint filter: no SP file records found — passing all chunks through")
+            log.debug("SharePoint filter: no SP file records found — passing all chunks through")
             return chunks
 
         sp_files = {f.owui_file_id: f for f in sp_file_list}
@@ -157,12 +157,12 @@ def filter_by_sharepoint_permissions(
         }
 
         if not filter_sites:
-            log.info("SharePoint filter: no filter-mode sites — passing all chunks through")
+            log.debug("SharePoint filter: no filter-mode sites — passing all chunks through")
             return chunks
 
         # We need to check permissions — get user info
         user_email = user.get("email", "")
-        log.info(
+        log.debug(
             f"SharePoint filter: checking permissions for user_email='{user_email}', "
             f"{len(chunks)} chunks, {len(sp_files)} SP files in filter-mode sites"
         )
@@ -208,7 +208,7 @@ def filter_by_sharepoint_permissions(
                 user_email=user_email,
                 user_groups=user_groups,
             )
-            log.info(
+            log.debug(
                 f"SharePoint filter: {'GRANTED' if has_access else 'DENIED'} "
                 f"file={sp_file.filename} user={user_email} "
                 f"allowed_users={au} allowed_groups={ag} "
