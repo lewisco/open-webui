@@ -35,10 +35,20 @@ from open_webui.models.access_grants import AccessGrants, has_public_read_access
 
 from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
 from open_webui.models.models import Models, ModelForm
+from open_webui.models.sharepoint import SharePoints
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_sharepoint_managed(knowledge_id: str, db: Session):
+    """Raise 403 if this knowledge collection is managed by SharePoint sync."""
+    if SharePoints.get_site_by_kb_id(knowledge_id, db=db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This collection is managed by SharePoint sync. Files cannot be modified manually.",
+        )
 
 ############################
 # getKnowledgeBases
@@ -397,6 +407,7 @@ async def reindex_knowledge_base_metadata_embeddings(
 class KnowledgeFilesResponse(KnowledgeResponse):
     files: Optional[list[FileMetadataResponse]] = None
     write_access: Optional[bool] = False
+    sharepoint_managed: Optional[bool] = False
 
 
 @router.get("/{id}", response_model=Optional[KnowledgeFilesResponse])
@@ -431,6 +442,10 @@ async def get_knowledge_by_id(
                         db=db,
                     )
                 ),
+                sharepoint_managed=SharePoints.get_site_by_kb_id(
+                    knowledge.id, db=db
+                )
+                is not None,
             )
         else:
             raise HTTPException(
@@ -681,6 +696,8 @@ def add_file_to_knowledge_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    _check_sharepoint_managed(id, db)
+
     file = Files.get_file_by_id(form_data.file_id, db=db)
     if not file:
         raise HTTPException(
@@ -757,6 +774,8 @@ def update_file_from_knowledge_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    _check_sharepoint_managed(id, db)
+
     file = Files.get_file_by_id(form_data.file_id, db=db)
     if not file:
         raise HTTPException(
@@ -831,6 +850,8 @@ def remove_file_from_knowledge_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    _check_sharepoint_managed(id, db)
+
     file = Files.get_file_by_id(form_data.file_id, db=db)
     if not file:
         raise HTTPException(
@@ -858,8 +879,6 @@ def remove_file_from_knowledge_by_id(
 
     # Mark SharePoint file as excluded so sync doesn't re-add it
     try:
-        from open_webui.models.sharepoint import SharePoints
-
         sp_file = SharePoints.get_file_by_owui_id(form_data.file_id, db=db)
         if sp_file:
             SharePoints.mark_file_excluded(sp_file.id, db=db)
@@ -923,6 +942,8 @@ async def delete_knowledge_by_id(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+
+    _check_sharepoint_managed(id, db)
 
     log.info(f"Deleting knowledge base: {id} (name: {knowledge.name})")
 
@@ -999,6 +1020,8 @@ async def reset_knowledge_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    _check_sharepoint_managed(id, db)
+
     try:
         VECTOR_DB_CLIENT.delete_collection(collection_name=id)
     except Exception as e:
@@ -1047,6 +1070,8 @@ async def add_files_to_knowledge_batch(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+
+    _check_sharepoint_managed(id, db)
 
     # Batch-fetch all files to avoid N+1 queries
     log.info(f"files/batch/add - {len(form_data)} files")

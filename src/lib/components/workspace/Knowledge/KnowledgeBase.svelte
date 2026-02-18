@@ -78,6 +78,7 @@
 		files: any[];
 		access_grants?: any[];
 		write_access?: boolean;
+		sharepoint_managed?: boolean;
 	};
 
 	let id = null;
@@ -100,6 +101,8 @@
 	let currentPage = 1;
 	let fileItems = null;
 	let fileItemsTotal = null;
+
+	$: canModifyFiles = knowledge?.write_access && !knowledge?.sharepoint_managed;
 
 	const reset = () => {
 		currentPage = 1;
@@ -655,7 +658,7 @@
 		e.preventDefault();
 		dragged = false;
 
-		if (!knowledge?.write_access) {
+		if (!canModifyFiles) {
 			toast.error($i18n.t('You do not have permission to upload files to this knowledge base.'));
 			return;
 		}
@@ -864,7 +867,12 @@
 								}}
 							/>
 
-							<div class="shrink-0 mr-2.5">
+							<div class="shrink-0 mr-2.5 flex items-center gap-2">
+								{#if knowledge?.sharepoint_managed}
+									<div class="text-xs text-gray-500">
+										{$i18n.t('SharePoint Managed')}
+									</div>
+								{/if}
 								{#if fileItemsTotal}
 									<div class="text-xs text-gray-500">
 										<!-- {$i18n.t('{{COUNT}} files')} -->
@@ -934,7 +942,7 @@
 						}}
 					/>
 
-					{#if knowledge?.write_access}
+					{#if canModifyFiles}
 						<div>
 							<AddContentMenu
 								onUpload={(data) => {
@@ -1087,7 +1095,7 @@
 											{selectedFile?.meta?.name}
 										</div>
 
-										{#if knowledge?.write_access}
+										{#if canModifyFiles}
 											<div>
 												<button
 													class="flex self-center w-fit text-sm py-1 px-2.5 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1111,7 +1119,7 @@
 										<textarea
 											class="w-full h-full text-sm outline-none resize-none px-3 py-2"
 											bind:value={selectedFileContent}
-											disabled={!knowledge?.write_access}
+											disabled={!canModifyFiles}
 											aria-label={$i18n.t('File content')}
 											placeholder={$i18n.t('Add content here')}
 										/>

@@ -250,6 +250,13 @@ class SharePointTable:
             log.exception(e)
             return None
 
+    def get_site_by_kb_id(
+        self, kb_id: str, db: Optional[Session] = None
+    ) -> Optional[SharePointSiteModel]:
+        with get_db_context(db) as db:
+            site = db.query(SharePointSite).filter_by(kb_id=kb_id).first()
+            return SharePointSiteModel.model_validate(site) if site else None
+
     def delete_site_by_id(self, id: str, db: Optional[Session] = None) -> bool:
         try:
             with get_db_context(db) as db:

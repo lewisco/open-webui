@@ -85,7 +85,7 @@
 				</div>
 			</button>
 
-			{#if knowledge?.write_access}
+			{#if knowledge?.write_access && !knowledge?.sharepoint_managed}
 				<div class="flex items-center">
 					<Tooltip content={$i18n.t('Delete')}>
 						<button
