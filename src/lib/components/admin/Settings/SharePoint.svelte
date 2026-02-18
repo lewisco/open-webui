@@ -25,6 +25,8 @@
 	import ArrowPath from '$lib/components/icons/ArrowPath.svelte';
 	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
 	import Pencil from '$lib/components/icons/Pencil.svelte';
+	import Modal from '$lib/components/common/Modal.svelte';
+	import XMark from '$lib/components/icons/XMark.svelte';
 
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -80,6 +82,16 @@
 	let editingSiteId: string | null = null;
 	let editSyncMode = 'none';
 	let savingEdit = false;
+	let showEditModal = false;
+
+	// Sync modal visibility: when Modal closes itself (backdrop/Escape), clean up edit state
+	$: if (!showEditModal && editingSiteId !== null) {
+		editingSiteId = null;
+		browserDriveId = '';
+		browserItems = [];
+		browserStack = [{ id: null, name: 'Root' }];
+		selectedItems = [];
+	}
 
 	export async function submit() {
 		await updateSharePointConfig(localStorage.token, {
@@ -351,10 +363,12 @@
 		selectedItems = site.selected_items ? [...site.selected_items] : [];
 		browserStack = [{ id: null, name: 'Root' }];
 		browserItems = [];
+		showEditModal = true;
 		await loadBrowserItems(null);
 	};
 
 	const cancelEditSite = () => {
+		showEditModal = false;
 		editingSiteId = null;
 		browserDriveId = '';
 		browserItems = [];
@@ -370,7 +384,7 @@
 				sync_mode: editSyncMode
 			});
 			toast.success($i18n.t('Site updated'));
-			editingSiteId = null;
+			cancelEditSite();
 			await loadSites();
 		} catch (e: any) {
 			toast.error(typeof e === 'string' ? e : 'Failed to update site');
@@ -468,11 +482,7 @@
 					type="button"
 					on:click={() => {
 						if (!showAddSite) {
-							editingSiteId = null;
-							browserDriveId = '';
-							browserItems = [];
-							browserStack = [{ id: null, name: 'Root' }];
-							selectedItems = [];
+							cancelEditSite();
 						}
 						showAddSite = !showAddSite;
 					}}
@@ -939,11 +949,11 @@
 												class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
 												on:click={() => {
 													showSiteMenu[site.id] = false;
-													editingSiteId === site.id ? cancelEditSite() : startEditSite(site);
+													startEditSite(site);
 												}}
 											>
 												<Pencil />
-												<div class="flex items-center">{editingSiteId === site.id ? $i18n.t('Cancel Edit') : $i18n.t('Edit')}</div>
+												<div class="flex items-center">{$i18n.t('Edit')}</div>
 											</DropdownMenu.Item>
 
 											<DropdownMenu.Separator class="my-0.5 border-t border-gray-100 dark:border-gray-800" />
@@ -962,140 +972,6 @@
 									</div>
 								</Dropdown>
 							</div>
-
-							<!-- Edit panel -->
-							{#if editingSiteId === site.id}
-								<div class="mt-3 p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10">
-									<!-- Permission Mode -->
-									<div class="mb-3 flex w-full justify-between">
-										<div class="self-center text-xs font-medium">
-											<Tooltip
-												content={$i18n.t(
-													'Filter mode restricts KB results based on SharePoint permissions. Requires Entra ID SSO.'
-												)}
-											>
-												{$i18n.t('Permission Mode')}
-											</Tooltip>
-										</div>
-										<div class="flex items-center relative">
-											<select
-												class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
-												bind:value={editSyncMode}
-											>
-												<option value="none">{$i18n.t('None (open access)')}</option>
-												<option value="filter">{$i18n.t('Filter by SharePoint ACLs')}</option>
-											</select>
-										</div>
-									</div>
-
-									<!-- File browser for edit -->
-									<div class="mb-3">
-										<div class="mb-1 text-xs font-medium">
-											{$i18n.t('Select files and folders to sync')}
-										</div>
-
-										<!-- Breadcrumb -->
-										<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
-											{#each browserStack as crumb, idx}
-												{#if idx > 0}
-													<span aria-hidden="true">/</span>
-												{/if}
-												<button
-													class="hover:text-blue-600 hover:underline"
-													type="button"
-													on:click={() => navigateToBreadcrumb(idx)}
-												>
-													{crumb.name}
-												</button>
-											{/each}
-										</nav>
-
-										<!-- Items list -->
-										<div
-											class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto"
-										>
-											{#if loadingItems}
-												<div class="p-3 text-xs text-gray-500 text-center">
-													{$i18n.t('Loading...')}
-												</div>
-											{:else if browserItems.length === 0}
-												<div class="p-3 text-xs text-gray-500 text-center">
-													{$i18n.t('No items found')}
-												</div>
-											{:else}
-												{#each browserItems as item}
-													<div
-														class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
-													>
-														<label class="flex items-center gap-2 flex-1 cursor-pointer">
-															<input
-																type="checkbox"
-																checked={isItemSelected(item.id)}
-																on:change={() => toggleItemSelection(item)}
-																class="rounded"
-															/>
-															<span class="text-xs">
-																{#if item.isFolder}
-																	<span class="mr-1">&#128193;</span>
-																{:else}
-																	<span class="mr-1">&#128196;</span>
-																{/if}
-																{item.name}
-															</span>
-														</label>
-
-														{#if item.isFolder}
-															<button
-																class="text-xs text-blue-600 hover:underline ml-2"
-																type="button"
-																on:click={() => navigateToFolder(item.id, item.name)}
-															>
-																{$i18n.t('Browse')}
-															</button>
-														{:else}
-															<span class="text-xs text-gray-400">
-																{item.size > 1048576
-																	? `${(item.size / 1048576).toFixed(1)} MB`
-																	: `${(item.size / 1024).toFixed(0)} KB`}
-															</span>
-														{/if}
-													</div>
-												{/each}
-											{/if}
-										</div>
-
-										{#if selectedItems.length > 0}
-											<div class="mt-2 text-xs text-gray-500">
-												{selectedItems.length}
-												{$i18n.t('item(s) selected')}
-											</div>
-										{:else}
-											<div class="mt-2 text-xs text-gray-400">
-												{$i18n.t('No selection = sync everything in the library')}
-											</div>
-										{/if}
-									</div>
-
-									<!-- Save / Cancel -->
-									<div class="flex justify-end gap-2">
-										<button
-											class="px-3 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
-											type="button"
-											on:click={cancelEditSite}
-										>
-											{$i18n.t('Cancel')}
-										</button>
-										<button
-											class="px-3 py-1.5 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
-											type="button"
-											disabled={savingEdit}
-											on:click={() => handleSaveEdit(site.id)}
-										>
-											{savingEdit ? $i18n.t('Saving...') : $i18n.t('Save Changes')}
-										</button>
-									</div>
-								</div>
-							{/if}
 						</div>
 					{/each}
 				</div>
@@ -1103,3 +979,148 @@
 		</div>
 	{/if}
 </div>
+
+<Modal size="md" bind:show={showEditModal}>
+	<div>
+		<!-- Header -->
+		<div class="flex justify-between dark:text-gray-100 px-5 pt-4 pb-1.5">
+			<div class="text-lg font-medium self-center font-primary">
+				{$i18n.t('Edit Site')}
+			</div>
+			<button
+				class="self-center"
+				aria-label={$i18n.t('Close modal')}
+				on:click={cancelEditSite}
+			>
+				<XMark className="size-5" />
+			</button>
+		</div>
+
+		{#if editingSiteId}
+			<!-- Body -->
+			<div class="px-5 pb-4 dark:text-gray-200">
+				<!-- Permission Mode -->
+				<div class="mb-3 flex w-full justify-between">
+					<div class="self-center text-xs font-medium">
+						<Tooltip
+							content={$i18n.t(
+								'Filter mode restricts KB results based on SharePoint permissions. Requires Entra ID SSO.'
+							)}
+						>
+							{$i18n.t('Permission Mode')}
+						</Tooltip>
+					</div>
+					<div class="flex items-center relative">
+						<select
+							class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
+							bind:value={editSyncMode}
+						>
+							<option value="none">{$i18n.t('None (open access)')}</option>
+							<option value="filter">{$i18n.t('Filter by SharePoint ACLs')}</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- File browser for edit -->
+				<div class="mb-3">
+					<div class="mb-1 text-xs font-medium">
+						{$i18n.t('Select files and folders to sync')}
+					</div>
+
+					<!-- Breadcrumb -->
+					<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
+						{#each browserStack as crumb, idx}
+							{#if idx > 0}
+								<span aria-hidden="true">/</span>
+							{/if}
+							<button
+								class="hover:text-blue-600 hover:underline"
+								type="button"
+								on:click={() => navigateToBreadcrumb(idx)}
+							>
+								{crumb.name}
+							</button>
+						{/each}
+					</nav>
+
+					<!-- Items list -->
+					<div
+						class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto"
+					>
+						{#if loadingItems}
+							<div class="p-3 text-xs text-gray-500 text-center">
+								{$i18n.t('Loading...')}
+							</div>
+						{:else if browserItems.length === 0}
+							<div class="p-3 text-xs text-gray-500 text-center">
+								{$i18n.t('No items found')}
+							</div>
+						{:else}
+							{#each browserItems as item}
+								<div
+									class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+								>
+									<label class="flex items-center gap-2 flex-1 cursor-pointer">
+										<input
+											type="checkbox"
+											checked={isItemSelected(item.id)}
+											on:change={() => toggleItemSelection(item)}
+											class="rounded"
+										/>
+										<span class="text-xs">
+											{#if item.isFolder}
+												<span class="mr-1">&#128193;</span>
+											{:else}
+												<span class="mr-1">&#128196;</span>
+											{/if}
+											{item.name}
+										</span>
+									</label>
+
+									{#if item.isFolder}
+										<button
+											class="text-xs text-blue-600 hover:underline ml-2"
+											type="button"
+											on:click={() => navigateToFolder(item.id, item.name)}
+										>
+											{$i18n.t('Browse')}
+										</button>
+									{:else}
+										<span class="text-xs text-gray-400">
+											{item.size > 1048576
+												? `${(item.size / 1048576).toFixed(1)} MB`
+												: `${(item.size / 1024).toFixed(0)} KB`}
+										</span>
+									{/if}
+								</div>
+							{/each}
+						{/if}
+					</div>
+
+					{#if selectedItems.length > 0}
+						<div class="mt-2 text-xs text-gray-500">
+							{selectedItems.length}
+							{$i18n.t('item(s) selected')}
+						</div>
+					{:else}
+						<div class="mt-2 text-xs text-gray-400">
+							{$i18n.t('No selection = sync everything in the library')}
+						</div>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Footer -->
+			<div class="flex justify-end px-5 pb-4">
+				<button
+					class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+					type="button"
+					disabled={savingEdit}
+					on:click={() => handleSaveEdit(editingSiteId)}
+				>
+					{savingEdit ? $i18n.t('Saving...') : $i18n.t('Save')}
+				</button>
+			</div>
+		{/if}
+	</div>
+</Modal>
