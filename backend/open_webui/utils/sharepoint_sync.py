@@ -141,14 +141,22 @@ def sync_site_stream(app, site_config):
     site_id = site_config.id
     site_name = site_config.site_name or site_config.site_id
 
+    # Atomically claim the site for syncing (prevents concurrent syncs)
+    if not SharePoints.claim_site_for_sync(site_id):
+        log.warning(f"SharePoint sync for '{site_name}' skipped: already in progress")
+        yield {
+            "type": "error",
+            "site_id": site_id,
+            "site_name": site_name,
+            "error": "Sync already in progress for this site",
+        }
+        return
+
     config = app.state.config
     allowed_extensions = getattr(config, "ALLOWED_FILE_EXTENSIONS", None)
     max_size = getattr(config, "FILE_MAX_SIZE", None)
 
     try:
-        # Mark as syncing
-        SharePoints.update_site(site_id, {"sync_status": "syncing", "sync_error": None})
-
         client = SharePointGraphClient(
             tenant_id=config.SHAREPOINT_TENANT_ID,
             client_id=config.SHAREPOINT_CLIENT_ID,
@@ -740,6 +748,9 @@ async def sharepoint_sync_periodic(app):
             # Check again after sleep in case config changed
             if not getattr(config, "ENABLE_SHAREPOINT_SYNC", False):
                 continue
+
+            # Reset any sites stuck in "syncing" from a previous crash
+            SharePoints.reset_stale_syncs()
 
             log.info("Running periodic SharePoint sync")
             try:

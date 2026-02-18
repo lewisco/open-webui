@@ -1833,7 +1833,7 @@ async def chat_completion_files_handler(
                 sources, user, request.app
             )
         except Exception as e:
-            log.debug(f"SharePoint permission filter skipped: {e}")
+            log.warning(f"SharePoint permission filter skipped: {e}")
 
         unique_ids = set()
         for source in sources or []:

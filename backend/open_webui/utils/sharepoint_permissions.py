@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 _group_cache: dict[str, tuple[list[str], float]] = {}
 _group_cache_lock = threading.Lock()
 _GROUP_CACHE_TTL = int(os.environ.get("SHAREPOINT_GROUP_CACHE_TTL", "300"))  # seconds
+_GROUP_CACHE_MAX_SIZE = 10_000
 
 
 def _get_user_groups(app, user_email: str) -> list[str]:
@@ -53,6 +54,13 @@ def _get_user_groups(app, user_email: str) -> list[str]:
             f"{user_email}: {groups}"
         )
         with _group_cache_lock:
+            # Evict oldest entries if cache exceeds max size
+            if len(_group_cache) >= _GROUP_CACHE_MAX_SIZE:
+                sorted_keys = sorted(
+                    _group_cache, key=lambda k: _group_cache[k][1]
+                )
+                for k in sorted_keys[: len(_group_cache) - _GROUP_CACHE_MAX_SIZE + 1]:
+                    del _group_cache[k]
             _group_cache[user_email] = (groups, now)
         return groups
     except Exception as e:

@@ -250,6 +250,58 @@ class SharePointTable:
             log.exception(e)
             return None
 
+    def claim_site_for_sync(self, site_id: str) -> bool:
+        """Atomically set sync_status='syncing' only if currently idle/error.
+        Returns True if claim succeeded, False if site is already syncing."""
+        try:
+            with get_db_context() as db:
+                rows = (
+                    db.query(SharePointSite)
+                    .filter(
+                        SharePointSite.id == site_id,
+                        SharePointSite.sync_status.in_(["idle", "error", None]),
+                    )
+                    .update(
+                        {
+                            "sync_status": "syncing",
+                            "sync_error": None,
+                            "updated_at": int(time.time()),
+                        },
+                        synchronize_session="fetch",
+                    )
+                )
+                db.commit()
+                return rows > 0
+        except Exception as e:
+            log.exception(e)
+            return False
+
+    def reset_stale_syncs(self, max_age_seconds: int = 600):
+        """Reset sites stuck in 'syncing' for longer than max_age_seconds."""
+        try:
+            cutoff = int(time.time()) - max_age_seconds
+            with get_db_context() as db:
+                rows = (
+                    db.query(SharePointSite)
+                    .filter(
+                        SharePointSite.sync_status == "syncing",
+                        SharePointSite.updated_at < cutoff,
+                    )
+                    .update(
+                        {
+                            "sync_status": "error",
+                            "sync_error": "Sync timed out (process may have crashed)",
+                            "updated_at": int(time.time()),
+                        },
+                        synchronize_session="fetch",
+                    )
+                )
+                db.commit()
+                if rows:
+                    log.warning(f"Reset {rows} stale SharePoint sync(s)")
+        except Exception as e:
+            log.exception(e)
+
     def get_site_by_kb_id(
         self, kb_id: str, db: Optional[Session] = None
     ) -> Optional[SharePointSiteModel]:

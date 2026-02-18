@@ -15,9 +15,16 @@
 		getSharePointSiteFiles
 	} from '$lib/apis/sharepoint';
 
+	import { DropdownMenu } from 'bits-ui';
+	import { flyAndScale } from '$lib/utils/transitions';
+	import Dropdown from '$lib/components/common/Dropdown.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
+	import ArrowPath from '$lib/components/icons/ArrowPath.svelte';
+	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
+	import Pencil from '$lib/components/icons/Pencil.svelte';
 
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -65,6 +72,9 @@
 	let expandedFilesSiteId: string | null = null;
 	let siteFiles: Record<string, any[]> = {};
 	let loadingFiles: Record<string, boolean> = {};
+
+	// Site dropdown menu state
+	let showSiteMenu: Record<string, boolean> = {};
 
 	// Edit site state
 	let editingSiteId: string | null = null;
@@ -533,10 +543,10 @@
 							</div>
 
 							<!-- Breadcrumb -->
-							<div class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
+							<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
 								{#each browserStack as crumb, idx}
 									{#if idx > 0}
-										<span>/</span>
+										<span aria-hidden="true">/</span>
 									{/if}
 									<button
 										class="hover:text-blue-600 hover:underline"
@@ -546,7 +556,7 @@
 										{crumb.name}
 									</button>
 								{/each}
-							</div>
+							</nav>
 
 							<!-- Items list -->
 							<div
@@ -698,7 +708,7 @@
 										{/if}
 									</div>
 								</div>
-								<div class="flex items-center gap-1">
+								<div class="flex items-center gap-1" aria-live="polite">
 									{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
 										<span class="text-xs text-blue-600 text-right max-w-[200px]">
 											{#if syncProgress && syncingSiteId === site.id && syncProgress.total > 0}
@@ -865,7 +875,7 @@
 								{/if}
 							</div>
 
-							<div class="flex items-center gap-2 flex-wrap">
+							<div class="flex items-center gap-1">
 								<button
 									class="px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
 									type="button"
@@ -875,41 +885,82 @@
 									{$i18n.t('Sync Now')}
 								</button>
 
-								{#if site.error_count > 0}
-									<button
-										class="px-2 py-1 text-xs rounded-lg border border-yellow-300 dark:border-yellow-600 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 disabled:opacity-50"
-										type="button"
-										disabled={syncingSiteId === site.id}
-										on:click={() => handleRetryErrors(site.id)}
-									>
-										{$i18n.t('Retry Errors')}
-									</button>
-								{/if}
-
-								<button
-									class="px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-									type="button"
-									disabled={syncingSiteId === site.id}
-									on:click={() => handleSync(site.id, true, true)}
+								<Dropdown
+									bind:show={showSiteMenu[site.id]}
+									align="end"
 								>
-									{$i18n.t('Force Sync')}
-								</button>
+									<Tooltip content={$i18n.t('More')}>
+										<button
+											class="self-center w-fit text-sm p-1.5 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
+											type="button"
+											on:click={(e) => {
+												e.stopPropagation();
+												showSiteMenu[site.id] = true;
+											}}
+										>
+											<EllipsisHorizontal className="size-5" />
+										</button>
+									</Tooltip>
 
-								<button
-									class="px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
-									type="button"
-									on:click={() => editingSiteId === site.id ? cancelEditSite() : startEditSite(site)}
-								>
-									{editingSiteId === site.id ? $i18n.t('Cancel Edit') : $i18n.t('Edit')}
-								</button>
+									<div slot="content">
+										<DropdownMenu.Content
+											class="w-full max-w-[170px] rounded-2xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+											side="bottom"
+											align="end"
+											transition={flyAndScale}
+										>
+											<DropdownMenu.Item
+												class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl {syncingSiteId === site.id ? 'opacity-50 pointer-events-none' : ''}"
+												on:click={() => {
+													showSiteMenu[site.id] = false;
+													handleSync(site.id, true, true);
+												}}
+											>
+												<ArrowPath />
+												<div class="flex items-center">{$i18n.t('Force Sync')}</div>
+											</DropdownMenu.Item>
 
-								<button
-									class="px-2 py-1 text-xs rounded-lg border border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-									type="button"
-									on:click={() => handleDeleteSite(site.id)}
-								>
-									{$i18n.t('Remove')}
-								</button>
+											{#if site.error_count > 0}
+												<DropdownMenu.Item
+													class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl {syncingSiteId === site.id ? 'opacity-50 pointer-events-none' : ''}"
+													on:click={() => {
+														showSiteMenu[site.id] = false;
+														handleRetryErrors(site.id);
+													}}
+												>
+													<ArrowPath />
+													<div class="flex items-center">{$i18n.t('Retry Errors')}</div>
+												</DropdownMenu.Item>
+											{/if}
+
+											<DropdownMenu.Separator class="my-0.5 border-t border-gray-100 dark:border-gray-800" />
+
+											<DropdownMenu.Item
+												class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+												on:click={() => {
+													showSiteMenu[site.id] = false;
+													editingSiteId === site.id ? cancelEditSite() : startEditSite(site);
+												}}
+											>
+												<Pencil />
+												<div class="flex items-center">{editingSiteId === site.id ? $i18n.t('Cancel Edit') : $i18n.t('Edit')}</div>
+											</DropdownMenu.Item>
+
+											<DropdownMenu.Separator class="my-0.5 border-t border-gray-100 dark:border-gray-800" />
+
+											<DropdownMenu.Item
+												class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl text-red-500"
+												on:click={() => {
+													showSiteMenu[site.id] = false;
+													handleDeleteSite(site.id);
+												}}
+											>
+												<GarbageBin />
+												<div class="flex items-center">{$i18n.t('Remove')}</div>
+											</DropdownMenu.Item>
+										</DropdownMenu.Content>
+									</div>
+								</Dropdown>
 							</div>
 
 							<!-- Edit panel -->
@@ -944,10 +995,10 @@
 										</div>
 
 										<!-- Breadcrumb -->
-										<div class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
+										<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
 											{#each browserStack as crumb, idx}
 												{#if idx > 0}
-													<span>/</span>
+													<span aria-hidden="true">/</span>
 												{/if}
 												<button
 													class="hover:text-blue-600 hover:underline"
@@ -957,7 +1008,7 @@
 													{crumb.name}
 												</button>
 											{/each}
-										</div>
+										</nav>
 
 										<!-- Items list -->
 										<div
