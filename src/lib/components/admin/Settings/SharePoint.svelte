@@ -12,7 +12,8 @@
 		triggerSharePointSync,
 		triggerSharePointSyncStream,
 		retrySharePointErrors,
-		getSharePointSiteFiles
+		getSharePointSiteFiles,
+		cancelSharePointSync
 	} from '$lib/apis/sharepoint';
 
 	import { DropdownMenu } from 'bits-ui';
@@ -25,6 +26,8 @@
 	import ArrowPath from '$lib/components/icons/ArrowPath.svelte';
 	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
 	import Pencil from '$lib/components/icons/Pencil.svelte';
+	import Folder from '$lib/components/icons/Folder.svelte';
+	import Document from '$lib/components/icons/Document.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 
@@ -69,6 +72,9 @@
 	// Sync state
 	let syncingSiteId: string | null = null;
 	let syncProgress: { current: number; total: number; filename: string } | null = null;
+
+	// Cancel sync state
+	let cancellingSync = false;
 
 	// Files panel state
 	let expandedFilesSiteId: string | null = null;
@@ -330,6 +336,18 @@
 		syncingSiteId = null;
 	};
 
+	const handleCancelSync = async (siteId: string) => {
+		cancellingSync = true;
+		try {
+			await cancelSharePointSync(localStorage.token, siteId);
+			toast.success($i18n.t('Sync cancelled'));
+			await loadSites();
+		} catch (e: any) {
+			toast.error(typeof e === 'string' ? e : 'Failed to cancel sync');
+		}
+		cancellingSync = false;
+	};
+
 	const toggleFiles = async (siteId: string) => {
 		if (expandedFilesSiteId === siteId) {
 			expandedFilesSiteId = null;
@@ -508,7 +526,7 @@
 								autocomplete="off"
 							/>
 							<button
-								class="px-3 py-1 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
+								class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
 								type="button"
 								disabled={resolving || !siteUrl.trim()}
 								on:click={handleResolve}
@@ -520,7 +538,7 @@
 
 					<!-- Step 2: Resolved site + Drive selection -->
 					{#if resolvedSite}
-						<div class="mb-3 text-xs text-green-600 dark:text-green-400">
+						<div class="mb-3 text-xs text-gray-600 dark:text-gray-400">
 							Connected to: <strong>{resolvedSite.site_name}</strong>
 						</div>
 
@@ -559,7 +577,7 @@
 										<span aria-hidden="true">/</span>
 									{/if}
 									<button
-										class="hover:text-blue-600 hover:underline"
+										class="hover:text-gray-700 dark:hover:text-gray-300"
 										type="button"
 										on:click={() => navigateToBreadcrumb(idx)}
 									>
@@ -592,11 +610,11 @@
 													on:change={() => toggleItemSelection(item)}
 													class="rounded"
 												/>
-												<span class="text-xs">
+												<span class="text-xs flex items-center gap-1">
 													{#if item.isFolder}
-														<span class="mr-1">&#128193;</span>
+														<Folder className="size-3.5 shrink-0" />
 													{:else}
-														<span class="mr-1">&#128196;</span>
+														<Document className="size-3.5 shrink-0" />
 													{/if}
 													{item.name}
 												</span>
@@ -604,7 +622,7 @@
 
 											{#if item.isFolder}
 												<button
-													class="text-xs text-blue-600 hover:underline ml-2"
+													class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
 													type="button"
 													on:click={() => navigateToFolder(item.id, item.name)}
 												>
@@ -714,13 +732,13 @@
 										&middot;
 										{$i18n.t('Last sync')}: {formatTimestamp(site.last_sync_at)}
 										{#if site.sync_mode === 'filter'}
-											&middot; <span class="text-blue-500">{$i18n.t('ACL Filtered')}</span>
+											&middot; <span class="text-gray-500">{$i18n.t('ACL Filtered')}</span>
 										{/if}
 									</div>
 								</div>
 								<div class="flex items-center gap-1" aria-live="polite">
 									{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
-										<span class="text-xs text-blue-600 text-right max-w-[200px]">
+										<span class="text-xs text-gray-600 dark:text-gray-400 text-right max-w-[200px]">
 											{#if syncProgress && syncingSiteId === site.id && syncProgress.total > 0}
 												{syncProgress.current}/{syncProgress.total}
 												{#if syncProgress.filename}
@@ -886,14 +904,25 @@
 							</div>
 
 							<div class="flex items-center gap-1">
-								<button
-									class="px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-									type="button"
-									disabled={syncingSiteId === site.id}
-									on:click={() => handleSync(site.id)}
-								>
-									{$i18n.t('Sync Now')}
-								</button>
+								{#if site.sync_status === 'syncing' && syncingSiteId !== site.id}
+									<button
+										class="px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-700 text-white transition rounded-full disabled:opacity-50"
+										type="button"
+										disabled={cancellingSync}
+										on:click={() => handleCancelSync(site.id)}
+									>
+										{cancellingSync ? $i18n.t('Cancelling...') : $i18n.t('Cancel Sync')}
+									</button>
+								{:else}
+									<button
+										class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+										type="button"
+										disabled={syncingSiteId === site.id}
+										on:click={() => handleSync(site.id)}
+									>
+										{$i18n.t('Sync Now')}
+									</button>
+								{/if}
 
 								<Dropdown
 									bind:show={showSiteMenu[site.id]}
@@ -1034,7 +1063,7 @@
 								<span aria-hidden="true">/</span>
 							{/if}
 							<button
-								class="hover:text-blue-600 hover:underline"
+								class="hover:text-gray-700 dark:hover:text-gray-300"
 								type="button"
 								on:click={() => navigateToBreadcrumb(idx)}
 							>
@@ -1067,11 +1096,11 @@
 											on:change={() => toggleItemSelection(item)}
 											class="rounded"
 										/>
-										<span class="text-xs">
+										<span class="text-xs flex items-center gap-1">
 											{#if item.isFolder}
-												<span class="mr-1">&#128193;</span>
+												<Folder className="size-3.5 shrink-0" />
 											{:else}
-												<span class="mr-1">&#128196;</span>
+												<Document className="size-3.5 shrink-0" />
 											{/if}
 											{item.name}
 										</span>
@@ -1079,7 +1108,7 @@
 
 									{#if item.isFolder}
 										<button
-											class="text-xs text-blue-600 hover:underline ml-2"
+											class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
 											type="button"
 											on:click={() => navigateToFolder(item.id, item.name)}
 										>

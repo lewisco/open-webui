@@ -733,6 +733,9 @@ async def sharepoint_sync_periodic(app):
     """Periodic sync task — runs in the background."""
     log.info("SharePoint periodic sync task started")
 
+    # At process start no sync can be running — reset any leftover "syncing" state
+    SharePoints.reset_stale_syncs(max_age_seconds=0)
+
     while True:
         try:
             config = app.state.config

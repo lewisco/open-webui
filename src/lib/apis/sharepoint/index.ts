@@ -293,6 +293,35 @@ export const retrySharePointErrors = async (token: string, siteId: string) => {
 	return res;
 };
 
+// ---- Cancel Sync ----
+
+export const cancelSharePointSync = async (token: string, siteId: string) => {
+	let error = null;
+
+	const res = await fetch(
+		`${SHAREPOINT_API_BASE}/sync/${encodeURIComponent(siteId)}/cancel`,
+		{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${token}`
+			}
+		}
+	)
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) throw error;
+	return res;
+};
+
 // ---- Sync ----
 
 export const triggerSharePointSync = async (

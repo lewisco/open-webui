@@ -44,6 +44,7 @@ from open_webui.env import (
     OFFLINE_MODE,
     ENABLE_FORWARD_USER_INFO_HEADERS,
     AIOHTTP_CLIENT_SESSION_SSL,
+    RAG_EMBEDDING_BATCH_CONCURRENCY,
 )
 from open_webui.config import (
     RAG_EMBEDDING_QUERY_PREFIX,
@@ -865,7 +866,7 @@ def get_embedding_function(
 
                 if enable_async:
                     log.debug(
-                        f"generate_multiple_async: Processing {len(batches)} batches in parallel"
+                        f"generate_multiple_async: Processing {len(batches)} batches in parallel (concurrency={RAG_EMBEDDING_BATCH_CONCURRENCY})"
                     )
                     # Use semaphore to limit concurrent embedding API requests
                     # 0 = unlimited (no semaphore)

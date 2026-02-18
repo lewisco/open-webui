@@ -419,6 +419,33 @@ async def retry_sharepoint_errors(
         )
 
 
+@router.post("/sync/{site_id}/cancel")
+async def cancel_sharepoint_sync(
+    request: Request,
+    site_id: str,
+    user=Depends(get_admin_user),
+    db: Session = Depends(get_session),
+):
+    """Cancel a stuck sync by resetting the site status to idle."""
+    site = SharePoints.get_site_by_id(site_id, db=db)
+    if not site:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if site.sync_status != "syncing":
+        return {"status": True, "message": "Site is not currently syncing"}
+
+    SharePoints.update_site(
+        site_id,
+        {"sync_status": "idle", "sync_error": None},
+        db=db,
+    )
+    log.info(f"Admin cancelled sync for site {site_id}")
+    return {"status": True, "message": "Sync cancelled"}
+
+
 @router.post("/sync")
 async def trigger_sharepoint_sync(
     request: Request,
