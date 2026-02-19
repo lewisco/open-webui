@@ -7,19 +7,6 @@ import requests
 
 log = logging.getLogger(__name__)
 
-# Extensions to always skip during sync
-SKIPPED_EXTENSIONS = {
-    ".tmp",
-    ".lock",
-    ".bak",
-    ".swp",
-    ".ds_store",
-    ".thumbs.db",
-    ".gitignore",
-    ".gitkeep",
-}
-
-
 class SharePointGraphClient:
     """Microsoft Graph API client for SharePoint operations using MSAL client credentials."""
 
@@ -317,20 +304,13 @@ class SharePointGraphClient:
         if not filename:
             return False
 
-        ext = os.path.splitext(filename)[1].lower()
-
-        # Skip known non-document extensions
-        if ext in SKIPPED_EXTENSIONS:
-            return False
-
         # Check against admin-configured allowed extensions
         if allowed_extensions:
-            # Filter out empty strings
+            ext = os.path.splitext(filename)[1].lower()
+            ext_without_dot = ext[1:] if ext.startswith(".") else ext
             allowed = [e for e in allowed_extensions if e]
-            if allowed:
-                ext_without_dot = ext[1:] if ext.startswith(".") else ext
-                if ext_without_dot not in allowed:
-                    return False
+            if allowed and ext_without_dot not in allowed:
+                return False
 
         # Check file size limit (in MB, matching admin config)
         if max_size and max_size > 0:
