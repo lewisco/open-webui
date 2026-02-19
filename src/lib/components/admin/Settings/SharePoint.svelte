@@ -290,7 +290,15 @@
 				force,
 				clearExcl,
 				(event: Record<string, unknown>) => {
-					if (event.type === 'discovery') {
+					if (event.type === 'started') {
+						syncProgress = { current: 0, total: 0, filename: '' };
+					} else if (event.type === 'discovering') {
+						syncProgress = {
+							current: 0,
+							total: 0,
+							filename: `${event.items_found} items found...`
+						};
+					} else if (event.type === 'discovery') {
 						syncProgress = {
 							current: 0,
 							total: (event.total_items as number) ?? 0,
@@ -838,7 +846,7 @@
 													&mdash; <span class="inline-block max-w-[120px] truncate align-bottom">{syncProgress.filename}</span>
 												{/if}
 											{:else if syncingSiteId === site.id && syncProgress}
-												{$i18n.t('Discovering files...')}
+												{syncProgress.filename || $i18n.t('Discovering files...')}
 											{:else if pollProgress[site.id]}
 												{pollProgress[site.id].current}/{pollProgress[site.id].total}
 												{#if pollProgress[site.id].filename}

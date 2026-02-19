@@ -174,12 +174,12 @@ class SharePointGraphClient:
 
     # ---- Sync Methods ----
 
-    def get_folder_delta(
+    def get_folder_delta_pages(
         self, drive_id: str, delta_link: Optional[str] = None
-    ) -> tuple[list[dict], Optional[str]]:
+    ):
         """
-        Get incremental changes using delta query.
-        Returns: (items, new_delta_link)
+        Yield (page_items, page_num, new_delta_link_or_None) per delta page.
+        Allows callers to stream progress during pagination.
         """
         if delta_link:
             if not delta_link.startswith(self.GRAPH_BASE):
@@ -188,24 +188,34 @@ class SharePointGraphClient:
         else:
             url = f"{self.GRAPH_BASE}/drives/{drive_id}/root/delta"
 
-        all_items = []
-        new_delta_link = None
-
+        page_num = 0
         while url:
             resp = requests.get(url, headers=self._headers(), timeout=self.METADATA_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
+            page_items = data.get("value", [])
+            page_num += 1
 
-            for item in data.get("value", []):
-                all_items.append(item)
-
-            # Check for next page or delta link
             if "@odata.nextLink" in data:
                 url = data["@odata.nextLink"]
+                yield page_items, page_num, None
             else:
-                new_delta_link = data.get("@odata.deltaLink")
                 url = None
+                yield page_items, page_num, data.get("@odata.deltaLink")
 
+    def get_folder_delta(
+        self, drive_id: str, delta_link: Optional[str] = None
+    ) -> tuple[list[dict], Optional[str]]:
+        """
+        Get incremental changes using delta query.
+        Returns: (items, new_delta_link)
+        """
+        all_items = []
+        new_delta_link = None
+        for page_items, _, dl in self.get_folder_delta_pages(drive_id, delta_link):
+            all_items.extend(page_items)
+            if dl is not None:
+                new_delta_link = dl
         return all_items, new_delta_link
 
     def download_file(self, drive_id: str, item_id: str) -> bytes:

@@ -512,4 +512,8 @@ async def trigger_sharepoint_sync_stream(
             clear_exclusions=form_data.clear_exclusions,
         ),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )

@@ -171,125 +171,94 @@ def sync_site_stream(app, site_config):
             client_secret=config.SHAREPOINT_CLIENT_SECRET,
         )
 
-        # Get incremental changes
+        # Immediate feedback before delta pagination begins
+        _sync_progress[site_id] = {"current": 0, "total": 0, "filename": ""}
+        yield {
+            "type": "started",
+            "site_id": site_id,
+            "site_name": site_name,
+        }
+
+        # Get incremental changes, yielding per-page discovering events
         delta_link = site_config.delta_link
-        items, new_delta_link = client.get_folder_delta(
+        items = []
+        new_delta_link = None
+        for page_items, page_num, dl in client.get_folder_delta_pages(
             site_config.drive_id, delta_link
-        )
+        ):
+            items.extend(page_items)
+            if dl is not None:
+                new_delta_link = dl
+            _sync_progress[site_id] = {
+                "current": 0,
+                "total": 0,
+                "filename": f"{len(items)} items found...",
+            }
+            yield {
+                "type": "discovering",
+                "site_id": site_id,
+                "site_name": site_name,
+                "page": page_num,
+                "items_found": len(items),
+            }
+
+        # Pre-filter: separate deletions from actionable file items.
+        # This lets progress show "x/262" (real files) instead of "x/64136" (raw delta items).
+        deletions = []
+        actionable = []
+        for item in items:
+            if item.get("deleted"):
+                deletions.append(item)
+            elif "file" in item and "folder" not in item:
+                item_path = SharePointGraphClient.get_item_path(item)
+                if _is_within_selection(item_path, site_config.selected_items):
+                    item_name = item.get("name", "")
+                    item_size = item.get("size", 0)
+                    if SharePointGraphClient.is_supported_file(
+                        item_name, item_size, allowed_extensions, max_size
+                    ):
+                        actionable.append(item)
+
+        total_files = len(actionable)
 
         log.info(
             f"SharePoint sync for '{site_name}': "
-            f"{len(items)} delta items"
+            f"{len(items)} delta items, {total_files} actionable files, "
+            f"{len(deletions)} deletions"
         )
 
-        _sync_progress[site_id] = {"current": 0, "total": len(items), "filename": ""}
+        _sync_progress[site_id] = {"current": 0, "total": total_files, "filename": ""}
 
         yield {
             "type": "discovery",
             "site_id": site_id,
             "site_name": site_name,
-            "total_items": len(items),
+            "total_items": total_files,
         }
 
-        for idx, item in enumerate(items, 1):
+        # Process deletions silently (no per-item progress — these are fast DB ops)
+        for item in deletions:
+            try:
+                item_id = item.get("id", "")
+                tracked = SharePoints.get_file_by_sp_item_id(site_id, item_id)
+                if tracked and tracked.owui_file_id:
+                    _cleanup_vector_entries(site_config.kb_id, tracked.owui_file_id)
+                    Files.delete_file_by_id(tracked.owui_file_id)
+                    SharePoints.delete_file_by_sp_item_id(site_id, item_id)
+                    stats["deleted"] += 1
+            except Exception as e:
+                log.warning(f"Failed to process deletion for item {item.get('id', '?')}: {e}")
+                stats["errors"] += 1
+
+        # Main loop: only actionable files (in-scope, supported type, not folders/deleted)
+        for idx, item in enumerate(actionable, 1):
             item_id = item.get("id", "")
             item_name = item.get("name", "")
             action = "skipped"
-            _sync_progress[site_id] = {"current": idx, "total": len(items), "filename": item_name}
+            _sync_progress[site_id] = {"current": idx, "total": total_files, "filename": item_name}
             try:
                 item_path = SharePointGraphClient.get_item_path(item)
                 file_id = None
-
-                # Handle deleted items
-                if item.get("deleted"):
-                    tracked = SharePoints.get_file_by_sp_item_id(
-                        site_id, item_id
-                    )
-                    if tracked and tracked.owui_file_id:
-                        _cleanup_vector_entries(site_config.kb_id, tracked.owui_file_id)
-
-                        # Delete OWUI file
-                        Files.delete_file_by_id(tracked.owui_file_id)
-
-                        # Remove tracking record
-                        SharePoints.delete_file_by_sp_item_id(
-                            site_id, item_id
-                        )
-                        stats["deleted"] += 1
-                        action = "deleted"
-                    yield {
-                        "type": "progress",
-                        "site_id": site_id,
-                        "site_name": site_name,
-                        "current": idx,
-                        "total": len(items),
-                        "filename": item_name,
-                        "action": action,
-                        "stats": dict(stats),
-                    }
-                    continue
-
-                # Skip folders
-                if "folder" in item:
-                    yield {
-                        "type": "progress",
-                        "site_id": site_id,
-                        "site_name": site_name,
-                        "current": idx,
-                        "total": len(items),
-                        "filename": item_name,
-                        "action": "skipped",
-                        "stats": dict(stats),
-                    }
-                    continue
-
-                # Skip non-file items (packages, etc.)
-                if "file" not in item:
-                    yield {
-                        "type": "progress",
-                        "site_id": site_id,
-                        "site_name": site_name,
-                        "current": idx,
-                        "total": len(items),
-                        "filename": item_name,
-                        "action": "skipped",
-                        "stats": dict(stats),
-                    }
-                    continue
-
-                # Selection filter
-                if not _is_within_selection(
-                    item_path, site_config.selected_items
-                ):
-                    yield {
-                        "type": "progress",
-                        "site_id": site_id,
-                        "site_name": site_name,
-                        "current": idx,
-                        "total": len(items),
-                        "filename": item_name,
-                        "action": "skipped",
-                        "stats": dict(stats),
-                    }
-                    continue
-
-                # File type/size check
-                item_size = item.get("size", 0)
-                if not SharePointGraphClient.is_supported_file(
-                    item_name, item_size, allowed_extensions, max_size
-                ):
-                    stats["skipped"] += 1
-                    yield {
-                        "type": "progress",
-                        "site_id": site_id,
-                        "site_name": site_name,
-                        "current": idx,
-                        "total": len(items),
-                        "filename": item_name,
-                        "action": "skipped",
-                        "stats": dict(stats),
-                    }
-                    continue
 
                 # Exclusion check
                 tracked = SharePoints.get_file_by_sp_item_id(
@@ -302,7 +271,7 @@ def sync_site_stream(app, site_config):
                         "site_id": site_id,
                         "site_name": site_name,
                         "current": idx,
-                        "total": len(items),
+                        "total": total_files,
                         "filename": item_name,
                         "action": "skipped",
                         "stats": dict(stats),
@@ -330,12 +299,13 @@ def sync_site_stream(app, site_config):
                             log.warning(
                                 f"Permission refresh failed for {item_name}: {e}"
                             )
+                    stats["skipped"] += 1
                     yield {
                         "type": "progress",
                         "site_id": site_id,
                         "site_name": site_name,
                         "current": idx,
-                        "total": len(items),
+                        "total": total_files,
                         "filename": item_name,
                         "action": "skipped",
                         "stats": dict(stats),
@@ -382,7 +352,7 @@ def sync_site_stream(app, site_config):
                         "site_id": site_id,
                         "site_name": site_name,
                         "current": idx,
-                        "total": len(items),
+                        "total": total_files,
                         "filename": item_name,
                         "action": "error",
                         "stats": dict(stats),
@@ -421,7 +391,7 @@ def sync_site_stream(app, site_config):
                         "site_id": site_id,
                         "site_name": site_name,
                         "current": idx,
-                        "total": len(items),
+                        "total": total_files,
                         "filename": item_name,
                         "action": "error",
                         "stats": dict(stats),
@@ -463,7 +433,7 @@ def sync_site_stream(app, site_config):
                             "site_id": site_id,
                             "site_name": site_name,
                             "current": idx,
-                            "total": len(items),
+                            "total": total_files,
                             "filename": item_name,
                             "action": "error",
                             "stats": dict(stats),
@@ -502,7 +472,7 @@ def sync_site_stream(app, site_config):
                 log.exception(f"Error processing item {item.get('name', '?')}: {e}")
                 # Track the error so it's visible in the UI — same upsert
                 # pattern as the embedding and permission-fetch error handlers.
-                if item_id and "file" in item:
+                if item_id:
                     SharePoints.upsert_file(
                         site_id,
                         item_id,
@@ -524,7 +494,7 @@ def sync_site_stream(app, site_config):
                 "site_id": site_id,
                 "site_name": site_name,
                 "current": idx,
-                "total": len(items),
+                "total": total_files,
                 "filename": item_name,
                 "action": action,
                 "stats": dict(stats),
