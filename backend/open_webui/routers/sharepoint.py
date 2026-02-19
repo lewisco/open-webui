@@ -419,6 +419,30 @@ async def retry_sharepoint_errors(
         )
 
 
+@router.get("/sync/{site_id}/status")
+async def get_sharepoint_sync_status(
+    request: Request,
+    site_id: str,
+    user=Depends(get_admin_user),
+    db: Session = Depends(get_session),
+):
+    """Get the current sync status and progress for a site."""
+    from open_webui.utils.sharepoint_sync import get_sync_progress
+
+    site = SharePoints.get_site_by_id(site_id, db=db)
+    if not site:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    progress = get_sync_progress(site_id)
+    return {
+        "sync_status": site.sync_status,
+        "progress": progress,
+    }
+
+
 @router.post("/sync/{site_id}/cancel")
 async def cancel_sharepoint_sync(
     request: Request,

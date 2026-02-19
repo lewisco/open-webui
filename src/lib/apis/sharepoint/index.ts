@@ -358,12 +358,43 @@ export const triggerSharePointSync = async (
 	return res;
 };
 
+export const getSharePointSyncStatus = async (
+	token: string,
+	siteId: string
+): Promise<{ sync_status: string; progress: { current: number; total: number; filename: string } | null } | null> => {
+	let error = null;
+
+	const res = await fetch(
+		`${SHAREPOINT_API_BASE}/sync/${encodeURIComponent(siteId)}/status`,
+		{
+			method: 'GET',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${token}`
+			}
+		}
+	)
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) throw error;
+	return res;
+};
+
 export const triggerSharePointSyncStream = async (
 	token: string,
 	siteId?: string,
 	force: boolean = false,
 	clearExclusions: boolean = false,
-	onEvent?: (event: Record<string, unknown>) => void
+	onEvent?: (event: Record<string, unknown>) => void,
+	signal?: AbortSignal
 ) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sync/stream`, {
 		method: 'POST',
@@ -375,7 +406,8 @@ export const triggerSharePointSyncStream = async (
 			site_id: siteId || null,
 			force,
 			clear_exclusions: clearExclusions
-		})
+		}),
+		signal
 	});
 
 	if (!res.ok) {

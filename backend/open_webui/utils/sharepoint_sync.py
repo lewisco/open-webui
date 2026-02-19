@@ -18,6 +18,14 @@ log = logging.getLogger(__name__)
 
 SYNC_USER_ID = "sharepoint-sync"
 
+# Module-level progress tracking for pollable sync status
+_sync_progress: dict[str, dict] = {}
+
+
+def get_sync_progress(site_id: str) -> dict | None:
+    """Return the current sync progress for a site, or None if not actively syncing."""
+    return _sync_progress.get(site_id)
+
 
 @dataclass
 class _SyncUser:
@@ -174,6 +182,8 @@ def sync_site_stream(app, site_config):
             f"{len(items)} delta items"
         )
 
+        _sync_progress[site_id] = {"current": 0, "total": len(items), "filename": ""}
+
         yield {
             "type": "discovery",
             "site_id": site_id,
@@ -185,6 +195,7 @@ def sync_site_stream(app, site_config):
             item_id = item.get("id", "")
             item_name = item.get("name", "")
             action = "skipped"
+            _sync_progress[site_id] = {"current": idx, "total": len(items), "filename": item_name}
             try:
                 item_path = SharePointGraphClient.get_item_path(item)
                 file_id = None
@@ -530,6 +541,8 @@ def sync_site_stream(app, site_config):
             },
         )
 
+        _sync_progress.pop(site_id, None)
+
         yield {
             "type": "complete",
             "site_id": site_id,
@@ -546,6 +559,8 @@ def sync_site_stream(app, site_config):
                 "sync_error": str(e)[:500],
             },
         )
+        _sync_progress.pop(site_id, None)
+
         yield {
             "type": "error",
             "site_id": site_id,

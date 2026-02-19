@@ -13,7 +13,8 @@
 		triggerSharePointSyncStream,
 		retrySharePointErrors,
 		getSharePointSiteFiles,
-		cancelSharePointSync
+		cancelSharePointSync,
+		getSharePointSyncStatus
 	} from '$lib/apis/sharepoint';
 
 	import { DropdownMenu } from 'bits-ui';
@@ -31,7 +32,7 @@
 	import Modal from '$lib/components/common/Modal.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 
-	import { onMount, getContext } from 'svelte';
+	import { onMount, onDestroy, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 
 	const i18n = getContext('i18n');
@@ -72,9 +73,15 @@
 	// Sync state
 	let syncingSiteId: string | null = null;
 	let syncProgress: { current: number; total: number; filename: string } | null = null;
+	let syncAbortController: AbortController | null = null;
 
 	// Cancel sync state
 	let cancellingSync = false;
+
+	// Progress polling for syncs detected after page reload
+	let pollInterval: ReturnType<typeof setInterval> | null = null;
+	let pollProgress: Record<string, { current: number; total: number; filename: string } | null> =
+		{};
 
 	// Files panel state
 	let expandedFilesSiteId: string | null = null;
@@ -274,6 +281,8 @@
 	const handleSync = async (siteId: string, force = false, clearExcl = false) => {
 		syncingSiteId = siteId;
 		syncProgress = null;
+		const controller = new AbortController();
+		syncAbortController = controller;
 		try {
 			const lastEvent = await triggerSharePointSyncStream(
 				localStorage.token,
@@ -296,7 +305,8 @@
 					} else if (event.type === 'error') {
 						toast.error(`Sync error: ${event.error}`);
 					}
-				}
+				},
+				controller.signal
 			);
 			if (lastEvent?.type === 'complete' && lastEvent.stats) {
 				const s = lastEvent.stats as Record<string, number>;
@@ -310,10 +320,16 @@
 			expandedFilesSiteId = null;
 			await loadSites();
 		} catch (e: any) {
-			toast.error(typeof e === 'string' ? e : 'Sync failed');
+			if (e instanceof DOMException && e.name === 'AbortError') {
+				// User cancelled — handled silently
+			} else {
+				toast.error(typeof e === 'string' ? e : 'Sync failed');
+			}
+		} finally {
+			syncingSiteId = null;
+			syncProgress = null;
+			syncAbortController = null;
 		}
-		syncingSiteId = null;
-		syncProgress = null;
 	};
 
 	const handleRetryErrors = async (siteId: string) => {
@@ -338,9 +354,17 @@
 
 	const handleCancelSync = async (siteId: string) => {
 		cancellingSync = true;
+		// Abort the SSE stream if this is a frontend-initiated sync
+		syncAbortController?.abort();
+		syncAbortController = null;
 		try {
 			await cancelSharePointSync(localStorage.token, siteId);
 			toast.success($i18n.t('Sync cancelled'));
+			syncingSiteId = null;
+			syncProgress = null;
+			// Clean up polling state for this site
+			delete pollProgress[siteId];
+			pollProgress = pollProgress;
 			await loadSites();
 		} catch (e: any) {
 			toast.error(typeof e === 'string' ? e : 'Failed to cancel sync');
@@ -410,10 +434,71 @@
 		savingEdit = false;
 	};
 
+	const countDescendantSelections = (folderName: string): number => {
+		const folderPath =
+			getCurrentPath() === '/' ? `/${folderName}` : `${getCurrentPath()}/${folderName}`;
+		return selectedItems.filter((s) => s.path.startsWith(folderPath + '/')).length;
+	};
+
+	const startPolling = () => {
+		stopPolling();
+		pollInterval = setInterval(async () => {
+			const syncingSites = sites.filter(
+				(s) => s.sync_status === 'syncing' && syncingSiteId !== s.id
+			);
+			if (syncingSites.length === 0) {
+				stopPolling();
+				return;
+			}
+			for (const site of syncingSites) {
+				try {
+					const result = await getSharePointSyncStatus(localStorage.token, site.id);
+					if (result) {
+						if (result.sync_status !== 'syncing') {
+							// Sync finished — clear polling for this site and refresh
+							delete pollProgress[site.id];
+							pollProgress = pollProgress;
+							await loadSites();
+						} else {
+							pollProgress[site.id] = result.progress;
+							pollProgress = pollProgress;
+						}
+					}
+				} catch {
+					// Ignore polling errors
+				}
+			}
+		}, 3000);
+	};
+
+	const stopPolling = () => {
+		if (pollInterval) {
+			clearInterval(pollInterval);
+			pollInterval = null;
+		}
+	};
+
+	// Start polling whenever sites load and some are syncing (not from this session)
+	$: {
+		const hasExternalSync = sites.some(
+			(s) => s.sync_status === 'syncing' && syncingSiteId !== s.id
+		);
+		if (hasExternalSync) {
+			startPolling();
+		} else {
+			stopPolling();
+			pollProgress = {};
+		}
+	}
+
 	const formatTimestamp = (ts: number | null): string => {
 		if (!ts) return 'Never';
 		return new Date(ts * 1000).toLocaleString();
 	};
+
+	onDestroy(() => {
+		stopPolling();
+	});
 
 	onMount(async () => {
 		try {
@@ -617,6 +702,14 @@
 														<Document className="size-3.5 shrink-0" />
 													{/if}
 													{item.name}
+													{#if item.isFolder && !isItemSelected(item.id)}
+														{@const descendantCount = countDescendantSelections(item.name)}
+														{#if descendantCount > 0}
+															<span class="text-[10px] text-gray-400 ml-1">
+																({descendantCount} inside)
+															</span>
+														{/if}
+													{/if}
 												</span>
 											</label>
 
@@ -739,13 +832,18 @@
 								<div class="flex items-center gap-1" aria-live="polite">
 									{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
 										<span class="text-xs text-gray-600 dark:text-gray-400 text-right max-w-[200px]">
-											{#if syncProgress && syncingSiteId === site.id && syncProgress.total > 0}
+											{#if syncingSiteId === site.id && syncProgress && syncProgress.total > 0}
 												{syncProgress.current}/{syncProgress.total}
 												{#if syncProgress.filename}
 													&mdash; <span class="inline-block max-w-[120px] truncate align-bottom">{syncProgress.filename}</span>
 												{/if}
-											{:else if syncProgress && syncingSiteId === site.id}
+											{:else if syncingSiteId === site.id && syncProgress}
 												{$i18n.t('Discovering files...')}
+											{:else if pollProgress[site.id]}
+												{pollProgress[site.id].current}/{pollProgress[site.id].total}
+												{#if pollProgress[site.id].filename}
+													&mdash; <span class="inline-block max-w-[120px] truncate align-bottom">{pollProgress[site.id].filename}</span>
+												{/if}
 											{:else}
 												{$i18n.t('Syncing...')}
 											{/if}
@@ -904,7 +1002,7 @@
 							</div>
 
 							<div class="flex items-center gap-1">
-								{#if site.sync_status === 'syncing' && syncingSiteId !== site.id}
+								{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
 									<button
 										class="px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-700 text-white transition rounded-full disabled:opacity-50"
 										type="button"
@@ -1103,6 +1201,14 @@
 												<Document className="size-3.5 shrink-0" />
 											{/if}
 											{item.name}
+											{#if item.isFolder && !isItemSelected(item.id)}
+												{@const descendantCount = countDescendantSelections(item.name)}
+												{#if descendantCount > 0}
+													<span class="text-[10px] text-gray-400 ml-1">
+														({descendantCount} inside)
+													</span>
+												{/if}
+											{/if}
 										</span>
 									</label>
 
