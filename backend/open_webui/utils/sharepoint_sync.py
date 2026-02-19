@@ -192,7 +192,7 @@ def sync_site_stream(app, site_config):
             _sync_progress[site_id] = {
                 "current": 0,
                 "total": 0,
-                "filename": f"{len(items)} items found...",
+                "filename": "",
             }
             yield {
                 "type": "discovering",

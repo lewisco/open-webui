@@ -296,7 +296,7 @@
 						syncProgress = {
 							current: 0,
 							total: 0,
-							filename: `${event.items_found} items found...`
+							filename: ''
 						};
 					} else if (event.type === 'discovery') {
 						syncProgress = {

@@ -174,6 +174,11 @@ class SharePointGraphClient:
 
     # ---- Sync Methods ----
 
+    # Only request fields we actually use — cuts response size ~50-70%.
+    DELTA_SELECT = "id,name,size,file,folder,parentReference,eTag,lastModifiedDateTime"
+    # Default page size is ~200; 5000 reduces round-trips ~25x on large drives.
+    DELTA_PAGE_SIZE = 5000
+
     def get_folder_delta_pages(
         self, drive_id: str, delta_link: Optional[str] = None
     ):
@@ -182,11 +187,15 @@ class SharePointGraphClient:
         Allows callers to stream progress during pagination.
         """
         if delta_link:
+            # Delta links already have $select/$top encoded by Microsoft
             if not delta_link.startswith(self.GRAPH_BASE):
                 raise ValueError(f"Invalid delta link origin: {delta_link[:100]}")
             url = delta_link
         else:
-            url = f"{self.GRAPH_BASE}/drives/{drive_id}/root/delta"
+            url = (
+                f"{self.GRAPH_BASE}/drives/{drive_id}/root/delta"
+                f"?$select={self.DELTA_SELECT}&$top={self.DELTA_PAGE_SIZE}"
+            )
 
         page_num = 0
         while url:
