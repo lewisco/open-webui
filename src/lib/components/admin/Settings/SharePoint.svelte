@@ -31,6 +31,7 @@
 	import Document from '$lib/components/icons/Document.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
+	import DeleteSiteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 
 	import { onMount, onDestroy, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -48,8 +49,8 @@
 	let sites: any[] = [];
 	let loadingSites = false;
 
-	// Add site flow
-	let showAddSite = false;
+	// Add site modal
+	let showAddModal = false;
 	let siteUrl = '';
 	let resolving = false;
 	let resolvedSite: { site_id: string; site_name: string; web_url: string } | null = null;
@@ -69,6 +70,8 @@
 	let kbName = '';
 	let newSiteSyncMode = 'none';
 	let addingSite = false;
+	let syncAll = false;
+	let addDisplayName = '';
 
 	// Sync state
 	let syncingSiteId: string | null = null;
@@ -94,10 +97,33 @@
 	// Edit site state
 	let editingSiteId: string | null = null;
 	let editSyncMode = 'none';
+	let editSyncAll = false;
+	let editDisplayName = '';
 	let savingEdit = false;
 	let showEditModal = false;
 
-	// Sync modal visibility: when Modal closes itself (backdrop/Escape), clean up edit state
+	// Delete confirmation state
+	let showDeleteConfirm = false;
+	let pendingDeleteSiteId: string | null = null;
+
+	// Clean up add modal state on close
+	$: if (!showAddModal) {
+		siteUrl = '';
+		resolvedSite = null;
+		drives = [];
+		selectedDriveId = '';
+		selectedDriveName = '';
+		browserDriveId = '';
+		browserItems = [];
+		browserStack = [{ id: null, name: 'Root' }];
+		selectedItems = [];
+		kbName = '';
+		newSiteSyncMode = 'none';
+		syncAll = false;
+		addDisplayName = '';
+	}
+
+	// Clean up edit modal state on close
 	$: if (!showEditModal && editingSiteId !== null) {
 		editingSiteId = null;
 		browserDriveId = '';
@@ -141,6 +167,7 @@
 			resolvedSite = await resolveSharePointSite(localStorage.token, siteUrl.trim());
 			if (resolvedSite) {
 				kbName = `SharePoint: ${resolvedSite.site_name}`;
+				addDisplayName = resolvedSite.site_name;
 				await loadDrives();
 			}
 		} catch (e: any) {
@@ -239,7 +266,9 @@
 				site_name: resolvedSite.site_name,
 				drive_id: selectedDriveId,
 				drive_name: selectedDriveName,
-				selected_items: selectedItems.length > 0 ? selectedItems : null,
+				selected_items: syncAll ? null : selectedItems.length > 0 ? selectedItems : null,
+				sync_all: syncAll,
+				display_name: addDisplayName || null,
 				kb_name: kbName || `SharePoint: ${resolvedSite.site_name}`,
 				sync_mode: newSiteSyncMode
 			};
@@ -247,19 +276,7 @@
 			await addSharePointSite(localStorage.token, siteData);
 			toast.success($i18n.t('Site added successfully'));
 
-			// Reset form
-			showAddSite = false;
-			siteUrl = '';
-			resolvedSite = null;
-			drives = [];
-			selectedDriveId = '';
-			browserDriveId = '';
-			browserItems = [];
-			browserStack = [{ id: null, name: 'Root' }];
-			selectedItems = [];
-			kbName = '';
-			newSiteSyncMode = 'none';
-
+			showAddModal = false;
 			await loadSites();
 		} catch (e: any) {
 			toast.error(typeof e === 'string' ? e : 'Failed to add site');
@@ -267,14 +284,32 @@
 		addingSite = false;
 	};
 
-	const handleDeleteSite = async (siteId: string) => {
-		if (!confirm($i18n.t('Are you sure you want to remove this site?'))) return;
+	const handleDeleteSite = (siteId: string) => {
+		pendingDeleteSiteId = siteId;
+		showDeleteConfirm = true;
+	};
+
+	const confirmDeleteSite = async () => {
+		if (!pendingDeleteSiteId) return;
 		try {
-			await deleteSharePointSite(localStorage.token, siteId);
+			await deleteSharePointSite(localStorage.token, pendingDeleteSiteId);
 			toast.success($i18n.t('Site removed'));
 			await loadSites();
 		} catch (e: any) {
 			toast.error(typeof e === 'string' ? e : 'Failed to remove site');
+		}
+		pendingDeleteSiteId = null;
+	};
+
+	const handleToggleSyncEnabled = async (site: any) => {
+		const newValue = !site.sync_enabled;
+		try {
+			await updateSharePointSite(localStorage.token, site.id, {
+				sync_enabled: newValue
+			});
+			await loadSites();
+		} catch (e: any) {
+			toast.error(typeof e === 'string' ? e : 'Failed to update site');
 		}
 	};
 
@@ -406,9 +441,10 @@
 	// ---- Edit site helpers ----
 
 	const startEditSite = async (site: any) => {
-		showAddSite = false;
 		editingSiteId = site.id;
 		editSyncMode = site.sync_mode || 'none';
+		editSyncAll = site.sync_all ?? false;
+		editDisplayName = site.display_name || site.site_name || '';
 		browserDriveId = site.drive_id;
 		selectedItems = site.selected_items ? [...site.selected_items] : [];
 		browserStack = [{ id: null, name: 'Root' }];
@@ -430,7 +466,9 @@
 		savingEdit = true;
 		try {
 			await updateSharePointSite(localStorage.token, siteId, {
-				selected_items: selectedItems.length > 0 ? selectedItems : null,
+				selected_items: editSyncAll ? null : selectedItems.length > 0 ? selectedItems : null,
+				sync_all: editSyncAll,
+				display_name: editDisplayName || null,
 				sync_mode: editSyncMode
 			});
 			toast.success($i18n.t('Site updated'));
@@ -504,6 +542,10 @@
 		return new Date(ts * 1000).toLocaleString();
 	};
 
+	const getSiteDisplayName = (site: any): string => {
+		return site.display_name || site.site_name || site.site_id;
+	};
+
 	onDestroy(() => {
 		stopPolling();
 	});
@@ -525,6 +567,15 @@
 		await loadSites();
 	});
 </script>
+
+<DeleteSiteConfirmDialog
+	bind:show={showDeleteConfirm}
+	title={$i18n.t('Remove Site')}
+	message={$i18n.t(
+		'This will remove the site configuration, its Knowledge Base, all synced files, and vector embeddings. This action cannot be undone.'
+	)}
+	on:confirm={confirmDeleteSite}
+/>
 
 <div class="space-y-3 text-sm">
 	<div class="mb-2.5 flex w-full justify-between">
@@ -592,217 +643,14 @@
 					class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full"
 					type="button"
 					on:click={() => {
-						if (!showAddSite) {
-							cancelEditSite();
-						}
-						showAddSite = !showAddSite;
+						showAddModal = true;
 					}}
 				>
-					{showAddSite ? $i18n.t('Cancel') : $i18n.t('Add Site')}
+					{$i18n.t('Add Site')}
 				</button>
 			</div>
 
 			<hr class="border-gray-100/30 dark:border-gray-850/30 my-2" />
-
-			<!-- Add Site Flow -->
-			{#if showAddSite}
-				<div class="mb-4 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-					<!-- Step 1: URL Input -->
-					<div class="mb-3">
-						<div class="mb-1 text-xs font-medium">{$i18n.t('SharePoint Site URL')}</div>
-						<div class="flex gap-2">
-							<input
-								class="flex-1 w-full rounded-lg text-sm bg-transparent outline-hidden"
-								type="url"
-								placeholder="https://contoso.sharepoint.com/sites/MySite"
-								bind:value={siteUrl}
-								autocomplete="off"
-							/>
-							<button
-								class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
-								type="button"
-								disabled={resolving || !siteUrl.trim()}
-								on:click={handleResolve}
-							>
-								{resolving ? $i18n.t('Connecting...') : $i18n.t('Connect')}
-							</button>
-						</div>
-					</div>
-
-					<!-- Step 2: Resolved site + Drive selection -->
-					{#if resolvedSite}
-						<div class="mb-3 text-xs text-gray-600 dark:text-gray-400">
-							Connected to: <strong>{resolvedSite.site_name}</strong>
-						</div>
-
-						<div class="mb-3">
-							<div class="mb-1 text-xs font-medium">
-								{$i18n.t('Document Library')}
-							</div>
-							{#if loadingDrives}
-								<div class="text-xs text-gray-500">{$i18n.t('Loading drives...')}</div>
-							{:else}
-								<select
-									class="w-full dark:bg-gray-900 rounded-lg px-2 p-1 text-sm bg-transparent outline-hidden"
-									on:change={handleDriveSelect}
-									bind:value={selectedDriveId}
-								>
-									<option value="">{$i18n.t('Select a document library')}</option>
-									{#each drives as drive}
-										<option value={drive.id}>{drive.name} ({drive.driveType})</option>
-									{/each}
-								</select>
-							{/if}
-						</div>
-					{/if}
-
-					<!-- Step 3: File browser -->
-					{#if selectedDriveId}
-						<div class="mb-3">
-							<div class="mb-1 text-xs font-medium">
-								{$i18n.t('Select files and folders to sync')}
-							</div>
-
-							<!-- Breadcrumb -->
-							<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
-								{#each browserStack as crumb, idx}
-									{#if idx > 0}
-										<span aria-hidden="true">/</span>
-									{/if}
-									<button
-										class="hover:text-gray-700 dark:hover:text-gray-300"
-										type="button"
-										on:click={() => navigateToBreadcrumb(idx)}
-									>
-										{crumb.name}
-									</button>
-								{/each}
-							</nav>
-
-							<!-- Items list -->
-							<div
-								class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto"
-							>
-								{#if loadingItems}
-									<div class="p-3 text-xs text-gray-500 text-center">
-										{$i18n.t('Loading...')}
-									</div>
-								{:else if browserItems.length === 0}
-									<div class="p-3 text-xs text-gray-500 text-center">
-										{$i18n.t('No items found')}
-									</div>
-								{:else}
-									{#each browserItems as item}
-										<div
-											class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
-										>
-											<label class="flex items-center gap-2 flex-1 cursor-pointer">
-												<input
-													type="checkbox"
-													checked={isItemSelected(item.id)}
-													on:change={() => toggleItemSelection(item)}
-													class="rounded"
-												/>
-												<span class="text-xs flex items-center gap-1">
-													{#if item.isFolder}
-														<Folder className="size-3.5 shrink-0" />
-													{:else}
-														<Document className="size-3.5 shrink-0" />
-													{/if}
-													{item.name}
-													{#if item.isFolder && !isItemSelected(item.id)}
-														{@const descendantCount = countDescendantSelections(item.name)}
-														{#if descendantCount > 0}
-															<span class="text-[10px] text-gray-400 ml-1">
-																({descendantCount} inside)
-															</span>
-														{/if}
-													{/if}
-												</span>
-											</label>
-
-											{#if item.isFolder}
-												<button
-													class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
-													type="button"
-													on:click={() => navigateToFolder(item.id, item.name)}
-												>
-													{$i18n.t('Browse')}
-												</button>
-											{:else}
-												<span class="text-xs text-gray-400">
-													{item.size > 1048576
-														? `${(item.size / 1048576).toFixed(1)} MB`
-														: `${(item.size / 1024).toFixed(0)} KB`}
-												</span>
-											{/if}
-										</div>
-									{/each}
-								{/if}
-							</div>
-
-							{#if selectedItems.length > 0}
-								<div class="mt-2 text-xs text-gray-500">
-									{selectedItems.length}
-									{$i18n.t('item(s) selected')}
-								</div>
-							{:else}
-								<div class="mt-2 text-xs text-gray-400">
-									{$i18n.t('No selection = sync everything in the library')}
-								</div>
-							{/if}
-						</div>
-
-						<!-- KB Name -->
-						<div class="mb-3">
-							<div class="mb-1 text-xs font-medium">
-								{$i18n.t('Knowledge Base Name')}
-							</div>
-							<input
-								class="flex-1 w-full rounded-lg text-sm bg-transparent outline-hidden"
-								type="text"
-								placeholder={$i18n.t('Knowledge Base name')}
-								bind:value={kbName}
-								autocomplete="off"
-							/>
-						</div>
-
-						<!-- Permission Mode -->
-						<div class="mb-3 flex w-full justify-between">
-							<div class="self-center text-xs font-medium">
-								<Tooltip
-									content={$i18n.t(
-										'Filter mode restricts KB results based on SharePoint permissions. Requires Entra ID SSO.'
-									)}
-								>
-									{$i18n.t('Permission Mode')}
-								</Tooltip>
-							</div>
-							<div class="flex items-center relative">
-								<select
-									class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
-									bind:value={newSiteSyncMode}
-								>
-									<option value="none">{$i18n.t('None (open access)')}</option>
-									<option value="filter">{$i18n.t('Filter by SharePoint ACLs')}</option>
-								</select>
-							</div>
-						</div>
-
-						<!-- Add button -->
-						<div class="flex justify-end">
-							<button
-								class="px-3 py-1.5 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
-								type="button"
-								disabled={addingSite || !resolvedSite || !selectedDriveId}
-								on:click={handleAddSite}
-							>
-								{addingSite ? $i18n.t('Adding...') : $i18n.t('Add Site')}
-							</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
 
 			<!-- Sites list -->
 			{#if loadingSites}
@@ -817,28 +665,36 @@
 				<div class="space-y-2">
 					{#each sites as site}
 						<div
-							class="p-3 rounded-lg border border-gray-200 dark:border-gray-700"
+							class="p-3 rounded-lg border border-gray-200 dark:border-gray-700 {site.sync_enabled === false ? 'opacity-60' : ''}"
 						>
 							<div class="flex items-center justify-between mb-2">
-								<div>
-									<div class="text-sm font-medium">
-										{site.site_name || site.site_id}
-									</div>
-									<div class="text-xs text-gray-500">
-										{site.drive_name || site.drive_id} &middot;
-										{site.file_count + site.error_count} {$i18n.t('files')}
-										{#if site.error_count > 0}
-											({site.error_count} {$i18n.t('failed')})
-										{/if}
-										&middot;
-										{$i18n.t('Last sync')}: {formatTimestamp(site.last_sync_at)}
-										{#if site.sync_mode === 'filter'}
-											&middot; <span class="text-gray-500">{$i18n.t('ACL Filtered')}</span>
-										{/if}
+								<div class="flex items-center gap-2">
+									<Switch
+										state={site.sync_enabled !== false}
+										on:change={() => handleToggleSyncEnabled(site)}
+									/>
+									<div>
+										<div class="text-sm font-medium">
+											{getSiteDisplayName(site)}
+										</div>
+										<div class="text-xs text-gray-500">
+											{site.drive_name || site.drive_id} &middot;
+											{site.file_count + site.error_count} {$i18n.t('files')}
+											{#if site.error_count > 0}
+												({site.error_count} {$i18n.t('failed')})
+											{/if}
+											&middot;
+											{$i18n.t('Last sync')}: {formatTimestamp(site.last_sync_at)}
+											{#if site.sync_mode === 'filter'}
+												&middot; <span class="text-gray-500">{$i18n.t('ACL Filtered')}</span>
+											{/if}
+										</div>
 									</div>
 								</div>
 								<div class="flex items-center gap-1" aria-live="polite">
-									{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
+									{#if site.sync_enabled === false}
+										<span class="text-xs text-gray-500">{$i18n.t('Paused')}</span>
+									{:else if site.sync_status === 'syncing' || syncingSiteId === site.id}
 										<span class="text-xs text-gray-600 dark:text-gray-400 text-right max-w-[200px]">
 											{#if syncingSiteId === site.id && syncProgress && syncProgress.total > 0}
 												{syncProgress.current}/{syncProgress.total}
@@ -1115,6 +971,259 @@
 	{/if}
 </div>
 
+<!-- Add Site Modal -->
+<Modal size="md" bind:show={showAddModal}>
+	<div>
+		<!-- Header -->
+		<div class="flex justify-between dark:text-gray-100 px-5 pt-4 pb-1.5">
+			<div class="text-lg font-medium self-center font-primary">
+				{$i18n.t('Add Site')}
+			</div>
+			<button
+				class="self-center"
+				aria-label={$i18n.t('Close modal')}
+				on:click={() => { showAddModal = false; }}
+			>
+				<XMark className="size-5" />
+			</button>
+		</div>
+
+		<!-- Body -->
+		<div class="px-5 pb-4 dark:text-gray-200">
+			<!-- Step 1: URL Input -->
+			<div class="mb-3">
+				<div class="mb-1 text-xs font-medium">{$i18n.t('SharePoint Site URL')}</div>
+				<div class="flex gap-2">
+					<input
+						class="flex-1 w-full rounded-lg text-sm bg-transparent outline-hidden"
+						type="url"
+						placeholder="https://contoso.sharepoint.com/sites/MySite"
+						bind:value={siteUrl}
+						autocomplete="off"
+					/>
+					<button
+						class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+						type="button"
+						disabled={resolving || !siteUrl.trim()}
+						on:click={handleResolve}
+					>
+						{resolving ? $i18n.t('Connecting...') : $i18n.t('Connect')}
+					</button>
+				</div>
+			</div>
+
+			<!-- Step 2: Resolved site + Drive selection -->
+			{#if resolvedSite}
+				<div class="mb-3 text-xs text-gray-600 dark:text-gray-400">
+					Connected to: <strong>{resolvedSite.site_name}</strong>
+				</div>
+
+				<div class="mb-3">
+					<div class="mb-1 text-xs font-medium">
+						{$i18n.t('Document Library')}
+					</div>
+					{#if loadingDrives}
+						<div class="text-xs text-gray-500">{$i18n.t('Loading drives...')}</div>
+					{:else}
+						<select
+							class="w-full dark:bg-gray-900 rounded-lg px-2 p-1 text-sm bg-transparent outline-hidden"
+							on:change={handleDriveSelect}
+							bind:value={selectedDriveId}
+						>
+							<option value="">{$i18n.t('Select a document library')}</option>
+							{#each drives as drive}
+								<option value={drive.id}>{drive.name} ({drive.driveType})</option>
+							{/each}
+						</select>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Step 3: Configuration -->
+			{#if selectedDriveId}
+				<!-- Display Name -->
+				<div class="mb-3">
+					<div class="mb-1 text-xs font-medium">
+						{$i18n.t('Display Name')}
+					</div>
+					<input
+						class="flex-1 w-full rounded-lg text-sm bg-transparent outline-hidden"
+						type="text"
+						placeholder={$i18n.t('Custom display name for this site')}
+						bind:value={addDisplayName}
+						autocomplete="off"
+					/>
+				</div>
+
+				<!-- Sync All Toggle -->
+				<div class="mb-3 flex w-full justify-between">
+					<div class="self-center text-xs font-medium">
+						<Tooltip
+							content={$i18n.t(
+								'When enabled, all files in the library are synced. When disabled, only selected files and folders are synced.'
+							)}
+						>
+							{$i18n.t('Sync all files')}
+						</Tooltip>
+					</div>
+					<div class="flex items-center relative">
+						<Switch bind:state={syncAll} />
+					</div>
+				</div>
+
+				<!-- File browser (hidden when syncAll is on) -->
+				{#if !syncAll}
+					<div class="mb-3">
+						<div class="mb-1 text-xs font-medium">
+							{$i18n.t('Select files and folders to sync')}
+						</div>
+
+						<!-- Breadcrumb -->
+						<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
+							{#each browserStack as crumb, idx}
+								{#if idx > 0}
+									<span aria-hidden="true">/</span>
+								{/if}
+								<button
+									class="hover:text-gray-700 dark:hover:text-gray-300"
+									type="button"
+									on:click={() => navigateToBreadcrumb(idx)}
+								>
+									{crumb.name}
+								</button>
+							{/each}
+						</nav>
+
+						<!-- Items list -->
+						<div
+							class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto"
+						>
+							{#if loadingItems}
+								<div class="p-3 text-xs text-gray-500 text-center">
+									{$i18n.t('Loading...')}
+								</div>
+							{:else if browserItems.length === 0}
+								<div class="p-3 text-xs text-gray-500 text-center">
+									{$i18n.t('No items found')}
+								</div>
+							{:else}
+								{#each browserItems as item}
+									<div
+										class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+									>
+										<label class="flex items-center gap-2 flex-1 cursor-pointer">
+											<input
+												type="checkbox"
+												checked={isItemSelected(item.id)}
+												on:change={() => toggleItemSelection(item)}
+												class="rounded"
+											/>
+											<span class="text-xs flex items-center gap-1">
+												{#if item.isFolder}
+													<Folder className="size-3.5 shrink-0" />
+												{:else}
+													<Document className="size-3.5 shrink-0" />
+												{/if}
+												{item.name}
+												{#if item.isFolder && !isItemSelected(item.id)}
+													{@const descendantCount = countDescendantSelections(item.name)}
+													{#if descendantCount > 0}
+														<span class="text-[10px] text-gray-400 ml-1">
+															({descendantCount} inside)
+														</span>
+													{/if}
+												{/if}
+											</span>
+										</label>
+
+										{#if item.isFolder}
+											<button
+												class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
+												type="button"
+												on:click={() => navigateToFolder(item.id, item.name)}
+											>
+												{$i18n.t('Browse')}
+											</button>
+										{:else}
+											<span class="text-xs text-gray-400">
+												{item.size > 1048576
+													? `${(item.size / 1048576).toFixed(1)} MB`
+													: `${(item.size / 1024).toFixed(0)} KB`}
+											</span>
+										{/if}
+									</div>
+								{/each}
+							{/if}
+						</div>
+
+						{#if selectedItems.length > 0}
+							<div class="mt-2 text-xs text-gray-500">
+								{selectedItems.length}
+								{$i18n.t('item(s) selected')}
+							</div>
+						{:else}
+							<div class="mt-2 text-xs text-gray-400">
+								{$i18n.t("Select files or folders to sync, or enable 'Sync all files'")}
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				<!-- KB Name -->
+				<div class="mb-3">
+					<div class="mb-1 text-xs font-medium">
+						{$i18n.t('Knowledge Base Name')}
+					</div>
+					<input
+						class="flex-1 w-full rounded-lg text-sm bg-transparent outline-hidden"
+						type="text"
+						placeholder={$i18n.t('Knowledge Base name')}
+						bind:value={kbName}
+						autocomplete="off"
+					/>
+				</div>
+
+				<!-- Permission Mode -->
+				<div class="mb-3 flex w-full justify-between">
+					<div class="self-center text-xs font-medium">
+						<Tooltip
+							content={$i18n.t(
+								'Filter mode restricts KB results based on SharePoint permissions. Requires Entra ID SSO.'
+							)}
+						>
+							{$i18n.t('Permission Mode')}
+						</Tooltip>
+					</div>
+					<div class="flex items-center relative">
+						<select
+							class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
+							bind:value={newSiteSyncMode}
+						>
+							<option value="none">{$i18n.t('None (open access)')}</option>
+							<option value="filter">{$i18n.t('Filter by SharePoint ACLs')}</option>
+						</select>
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Footer -->
+		{#if selectedDriveId}
+			<div class="flex justify-end px-5 pb-4">
+				<button
+					class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+					type="button"
+					disabled={addingSite || !resolvedSite || !selectedDriveId}
+					on:click={handleAddSite}
+				>
+					{addingSite ? $i18n.t('Adding...') : $i18n.t('Add Site')}
+				</button>
+			</div>
+		{/if}
+	</div>
+</Modal>
+
+<!-- Edit Site Modal -->
 <Modal size="md" bind:show={showEditModal}>
 	<div>
 		<!-- Header -->
@@ -1134,6 +1243,20 @@
 		{#if editingSiteId}
 			<!-- Body -->
 			<div class="px-5 pb-4 dark:text-gray-200">
+				<!-- Display Name -->
+				<div class="mb-3">
+					<div class="mb-1 text-xs font-medium">
+						{$i18n.t('Display Name')}
+					</div>
+					<input
+						class="flex-1 w-full rounded-lg text-sm bg-transparent outline-hidden"
+						type="text"
+						placeholder={$i18n.t('Custom display name for this site')}
+						bind:value={editDisplayName}
+						autocomplete="off"
+					/>
+				</div>
+
 				<!-- Permission Mode -->
 				<div class="mb-3 flex w-full justify-between">
 					<div class="self-center text-xs font-medium">
@@ -1156,101 +1279,119 @@
 					</div>
 				</div>
 
-				<!-- File browser for edit -->
-				<div class="mb-3">
-					<div class="mb-1 text-xs font-medium">
-						{$i18n.t('Select files and folders to sync')}
+				<!-- Sync All Toggle -->
+				<div class="mb-3 flex w-full justify-between">
+					<div class="self-center text-xs font-medium">
+						<Tooltip
+							content={$i18n.t(
+								'When enabled, all files in the library are synced. When disabled, only selected files and folders are synced.'
+							)}
+						>
+							{$i18n.t('Sync all files')}
+						</Tooltip>
 					</div>
+					<div class="flex items-center relative">
+						<Switch bind:state={editSyncAll} />
+					</div>
+				</div>
 
-					<!-- Breadcrumb -->
-					<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
-						{#each browserStack as crumb, idx}
-							{#if idx > 0}
-								<span aria-hidden="true">/</span>
+				<!-- File browser for edit (hidden when editSyncAll is on) -->
+				{#if !editSyncAll}
+					<div class="mb-3">
+						<div class="mb-1 text-xs font-medium">
+							{$i18n.t('Select files and folders to sync')}
+						</div>
+
+						<!-- Breadcrumb -->
+						<nav aria-label={$i18n.t('Breadcrumb')} class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap">
+							{#each browserStack as crumb, idx}
+								{#if idx > 0}
+									<span aria-hidden="true">/</span>
+								{/if}
+								<button
+									class="hover:text-gray-700 dark:hover:text-gray-300"
+									type="button"
+									on:click={() => navigateToBreadcrumb(idx)}
+								>
+									{crumb.name}
+								</button>
+							{/each}
+						</nav>
+
+						<!-- Items list -->
+						<div
+							class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto"
+						>
+							{#if loadingItems}
+								<div class="p-3 text-xs text-gray-500 text-center">
+									{$i18n.t('Loading...')}
+								</div>
+							{:else if browserItems.length === 0}
+								<div class="p-3 text-xs text-gray-500 text-center">
+									{$i18n.t('No items found')}
+								</div>
+							{:else}
+								{#each browserItems as item}
+									<div
+										class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+									>
+										<label class="flex items-center gap-2 flex-1 cursor-pointer">
+											<input
+												type="checkbox"
+												checked={isItemSelected(item.id)}
+												on:change={() => toggleItemSelection(item)}
+												class="rounded"
+											/>
+											<span class="text-xs flex items-center gap-1">
+												{#if item.isFolder}
+													<Folder className="size-3.5 shrink-0" />
+												{:else}
+													<Document className="size-3.5 shrink-0" />
+												{/if}
+												{item.name}
+												{#if item.isFolder && !isItemSelected(item.id)}
+													{@const descendantCount = countDescendantSelections(item.name)}
+													{#if descendantCount > 0}
+														<span class="text-[10px] text-gray-400 ml-1">
+															({descendantCount} inside)
+														</span>
+													{/if}
+												{/if}
+											</span>
+										</label>
+
+										{#if item.isFolder}
+											<button
+												class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
+												type="button"
+												on:click={() => navigateToFolder(item.id, item.name)}
+											>
+												{$i18n.t('Browse')}
+											</button>
+										{:else}
+											<span class="text-xs text-gray-400">
+												{item.size > 1048576
+													? `${(item.size / 1048576).toFixed(1)} MB`
+													: `${(item.size / 1024).toFixed(0)} KB`}
+											</span>
+										{/if}
+									</div>
+								{/each}
 							{/if}
-							<button
-								class="hover:text-gray-700 dark:hover:text-gray-300"
-								type="button"
-								on:click={() => navigateToBreadcrumb(idx)}
-							>
-								{crumb.name}
-							</button>
-						{/each}
-					</nav>
+						</div>
 
-					<!-- Items list -->
-					<div
-						class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto"
-					>
-						{#if loadingItems}
-							<div class="p-3 text-xs text-gray-500 text-center">
-								{$i18n.t('Loading...')}
-							</div>
-						{:else if browserItems.length === 0}
-							<div class="p-3 text-xs text-gray-500 text-center">
-								{$i18n.t('No items found')}
+						{#if selectedItems.length > 0}
+							<div class="mt-2 text-xs text-gray-500">
+								{selectedItems.length}
+								{$i18n.t('item(s) selected')}
 							</div>
 						{:else}
-							{#each browserItems as item}
-								<div
-									class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
-								>
-									<label class="flex items-center gap-2 flex-1 cursor-pointer">
-										<input
-											type="checkbox"
-											checked={isItemSelected(item.id)}
-											on:change={() => toggleItemSelection(item)}
-											class="rounded"
-										/>
-										<span class="text-xs flex items-center gap-1">
-											{#if item.isFolder}
-												<Folder className="size-3.5 shrink-0" />
-											{:else}
-												<Document className="size-3.5 shrink-0" />
-											{/if}
-											{item.name}
-											{#if item.isFolder && !isItemSelected(item.id)}
-												{@const descendantCount = countDescendantSelections(item.name)}
-												{#if descendantCount > 0}
-													<span class="text-[10px] text-gray-400 ml-1">
-														({descendantCount} inside)
-													</span>
-												{/if}
-											{/if}
-										</span>
-									</label>
-
-									{#if item.isFolder}
-										<button
-											class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
-											type="button"
-											on:click={() => navigateToFolder(item.id, item.name)}
-										>
-											{$i18n.t('Browse')}
-										</button>
-									{:else}
-										<span class="text-xs text-gray-400">
-											{item.size > 1048576
-												? `${(item.size / 1048576).toFixed(1)} MB`
-												: `${(item.size / 1024).toFixed(0)} KB`}
-										</span>
-									{/if}
-								</div>
-							{/each}
+							<div class="mt-2 text-xs text-gray-400">
+								{$i18n.t("Select files or folders to sync, or enable 'Sync all files'")}
+							</div>
 						{/if}
 					</div>
-
-					{#if selectedItems.length > 0}
-						<div class="mt-2 text-xs text-gray-500">
-							{selectedItems.length}
-							{$i18n.t('item(s) selected')}
-						</div>
-					{:else}
-						<div class="mt-2 text-xs text-gray-400">
-							{$i18n.t('No selection = sync everything in the library')}
-						</div>
-					{/if}
-				</div>
+				{/if}
 			</div>
 
 			<!-- Footer -->

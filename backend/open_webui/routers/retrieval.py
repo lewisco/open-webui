@@ -2677,7 +2677,20 @@ def delete_entries_from_collection(
 @router.post("/reset/db")
 def reset_vector_db(user=Depends(get_admin_user), db: Session = Depends(get_session)):
     VECTOR_DB_CLIENT.reset()
-    Knowledges.delete_all_knowledge(db=db)
+
+    # Protect SharePoint-managed KBs from deletion
+    try:
+        from open_webui.models.sharepoint import SharePoints
+
+        sp_sites = SharePoints.get_sites(db=db)
+        sp_kb_ids = [s.kb_id for s in sp_sites if s.kb_id]
+    except Exception:
+        sp_kb_ids = []
+
+    if sp_kb_ids:
+        Knowledges.delete_all_knowledge_except(sp_kb_ids, db=db)
+    else:
+        Knowledges.delete_all_knowledge(db=db)
 
 
 @router.post("/reset/uploads")

@@ -715,5 +715,29 @@ class KnowledgeTable:
             except Exception:
                 return False
 
+    def delete_all_knowledge_except(
+        self, exclude_ids: list[str], db: Optional[Session] = None
+    ) -> bool:
+        """Delete all knowledge bases except those with IDs in exclude_ids."""
+        if not exclude_ids:
+            return self.delete_all_knowledge(db=db)
+        with get_db_context(db) as db:
+            try:
+                knowledge_ids = [
+                    row[0]
+                    for row in db.query(Knowledge.id)
+                    .filter(Knowledge.id.notin_(exclude_ids))
+                    .all()
+                ]
+                for knowledge_id in knowledge_ids:
+                    AccessGrants.revoke_all_access("knowledge", knowledge_id, db=db)
+                db.query(Knowledge).filter(
+                    Knowledge.id.notin_(exclude_ids)
+                ).delete(synchronize_session="fetch")
+                db.commit()
+                return True
+            except Exception:
+                return False
+
 
 Knowledges = KnowledgeTable()

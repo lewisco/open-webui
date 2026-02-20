@@ -45,12 +45,11 @@ async def get_sharepoint_config(
     request: Request,
     user=Depends(get_admin_user),
 ):
-    secret = request.app.state.config.SHAREPOINT_CLIENT_SECRET
     return SharePointConfigResponse(
         ENABLE_SHAREPOINT_SYNC=request.app.state.config.ENABLE_SHAREPOINT_SYNC,
         SHAREPOINT_TENANT_ID=request.app.state.config.SHAREPOINT_TENANT_ID,
         SHAREPOINT_CLIENT_ID=request.app.state.config.SHAREPOINT_CLIENT_ID,
-        SHAREPOINT_CLIENT_SECRET="**********" if secret else "",
+        SHAREPOINT_CLIENT_SECRET=request.app.state.config.SHAREPOINT_CLIENT_SECRET or "",
         SHAREPOINT_SYNC_INTERVAL=request.app.state.config.SHAREPOINT_SYNC_INTERVAL,
     )
 
@@ -70,18 +69,15 @@ async def update_sharepoint_config(
     if form_data.SHAREPOINT_CLIENT_ID is not None:
         config.SHAREPOINT_CLIENT_ID = form_data.SHAREPOINT_CLIENT_ID
     if form_data.SHAREPOINT_CLIENT_SECRET is not None:
-        # Only update if not the masked placeholder
-        if form_data.SHAREPOINT_CLIENT_SECRET != "**********":
-            config.SHAREPOINT_CLIENT_SECRET = form_data.SHAREPOINT_CLIENT_SECRET
+        config.SHAREPOINT_CLIENT_SECRET = form_data.SHAREPOINT_CLIENT_SECRET
     if form_data.SHAREPOINT_SYNC_INTERVAL is not None:
         config.SHAREPOINT_SYNC_INTERVAL = form_data.SHAREPOINT_SYNC_INTERVAL
 
-    secret = config.SHAREPOINT_CLIENT_SECRET
     return SharePointConfigResponse(
         ENABLE_SHAREPOINT_SYNC=config.ENABLE_SHAREPOINT_SYNC,
         SHAREPOINT_TENANT_ID=config.SHAREPOINT_TENANT_ID,
         SHAREPOINT_CLIENT_ID=config.SHAREPOINT_CLIENT_ID,
-        SHAREPOINT_CLIENT_SECRET="**********" if secret else "",
+        SHAREPOINT_CLIENT_SECRET=config.SHAREPOINT_CLIENT_SECRET or "",
         SHAREPOINT_SYNC_INTERVAL=config.SHAREPOINT_SYNC_INTERVAL,
     )
 
@@ -341,10 +337,20 @@ async def update_sharepoint_site(
         )
 
     update_data = {}
+    if form_data.sync_all is not None:
+        update_data["sync_all"] = form_data.sync_all
+        if form_data.sync_all:
+            # When switching to sync_all, clear selected_items and delta_link
+            update_data["selected_items"] = None
+            update_data["delta_link"] = None
     if form_data.selected_items is not None:
         update_data["selected_items"] = form_data.selected_items
         # Clear delta_link so next sync picks up the new scope
         update_data["delta_link"] = None
+    if form_data.display_name is not None:
+        update_data["display_name"] = form_data.display_name
+    if form_data.sync_enabled is not None:
+        update_data["sync_enabled"] = form_data.sync_enabled
     if form_data.sync_mode is not None:
         update_data["sync_mode"] = form_data.sync_mode
     if form_data.kb_name is not None:

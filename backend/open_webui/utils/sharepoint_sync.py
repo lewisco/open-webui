@@ -58,13 +58,20 @@ def _cleanup_vector_entries(kb_id: str, owui_file_id: str):
         log.debug(f"Vector cleanup for file {owui_file_id}: {e}")
 
 
-def _is_within_selection(item_path: str, selected_items: list) -> bool:
+def _is_within_selection(
+    item_path: str, selected_items: list, sync_all: bool = False
+) -> bool:
     """
     Check if an item path falls within the selected scope.
-    If selected_items is empty/None, everything is in scope.
+    - sync_all=True: everything is in scope
+    - sync_all=False + empty/null selected_items: nothing is in scope
+    - sync_all=False + non-empty selected_items: match against selections
     """
-    if not selected_items:
+    if sync_all:
         return True
+
+    if not selected_items:
+        return False
 
     item_path_lower = item_path.lower().rstrip("/")
 
@@ -165,6 +172,51 @@ def sync_site_stream(app, site_config):
     max_size = getattr(config, "FILE_MAX_SIZE", None)
 
     try:
+        # Check if the KB still exists; recreate if it was deleted (e.g., via global reset)
+        kb_id = site_config.kb_id
+        if kb_id:
+            existing_kb = Knowledges.get_knowledge_by_id(kb_id)
+            if not existing_kb:
+                log.warning(
+                    f"KB {kb_id} for site '{site_name}' was deleted. Recreating..."
+                )
+                try:
+                    from open_webui.models.knowledge import KnowledgeForm
+
+                    kb_name = site_config.kb_name or f"SharePoint: {site_name}"
+                    new_kb = Knowledges.insert_new_knowledge(
+                        user_id=SYNC_USER_ID,
+                        form_data=KnowledgeForm(
+                            name=kb_name,
+                            description=f"Auto-synced from SharePoint (recreated)",
+                        ),
+                    )
+                    if new_kb:
+                        SharePoints.update_site(
+                            site_id, {"kb_id": new_kb.id, "delta_link": None}
+                        )
+                        site_config = SharePoints.get_site_by_id(site_id)
+                        log.info(f"Recreated KB as {new_kb.id} for site '{site_name}'")
+                    else:
+                        raise Exception("Failed to create replacement KB")
+                except Exception as e:
+                    log.error(f"KB recreation failed for site '{site_name}': {e}")
+                    SharePoints.update_site(
+                        site_id,
+                        {
+                            "sync_status": "error",
+                            "sync_error": f"KB was deleted and recreation failed: {e}",
+                        },
+                    )
+                    _sync_progress.pop(site_id, None)
+                    yield {
+                        "type": "error",
+                        "site_id": site_id,
+                        "site_name": site_name,
+                        "error": f"KB was deleted and recreation failed: {e}",
+                    }
+                    return
+
         client = SharePointGraphClient(
             tenant_id=config.SHAREPOINT_TENANT_ID,
             client_id=config.SHAREPOINT_CLIENT_ID,
@@ -211,7 +263,11 @@ def sync_site_stream(app, site_config):
                 deletions.append(item)
             elif "file" in item and "folder" not in item:
                 item_path = SharePointGraphClient.get_item_path(item)
-                if _is_within_selection(item_path, site_config.selected_items):
+                if _is_within_selection(
+                    item_path,
+                    site_config.selected_items,
+                    getattr(site_config, "sync_all", False),
+                ):
                     item_name = item.get("name", "")
                     item_size = item.get("size", 0)
                     if SharePointGraphClient.is_supported_file(
@@ -625,11 +681,16 @@ async def trigger_sync(
     results = []
 
     if site_id:
+        # Manual sync for a specific site — allow regardless of sync_enabled
         sites = [SharePoints.get_site_by_id(site_id)]
         if not sites[0]:
             raise ValueError(f"Site {site_id} not found")
     else:
-        sites = SharePoints.get_sites()
+        # Periodic/all-site sync — only sync enabled sites
+        sites = [
+            s for s in SharePoints.get_sites()
+            if getattr(s, "sync_enabled", True)
+        ]
 
     for site in sites:
         if clear_exclusions:
@@ -668,13 +729,18 @@ async def trigger_sync_stream(
     Bridges the synchronous sync_site_stream() generator to async via asyncio.Queue.
     """
     if site_id:
+        # Manual sync for a specific site — allow regardless of sync_enabled
         sites = [SharePoints.get_site_by_id(site_id)]
         if not sites[0]:
             yield f"data: {json.dumps({'type': 'error', 'site_id': site_id, 'site_name': '', 'error': f'Site {site_id} not found'})}\n\n"
             yield "data: [DONE]\n\n"
             return
     else:
-        sites = SharePoints.get_sites()
+        # Periodic/all-site sync — only sync enabled sites
+        sites = [
+            s for s in SharePoints.get_sites()
+            if getattr(s, "sync_enabled", True)
+        ]
 
     for site in sites:
         if clear_exclusions:
@@ -715,26 +781,29 @@ async def trigger_sync_stream(
 
 
 async def sharepoint_sync_periodic(app):
-    """Periodic sync task — runs in the background."""
+    """Periodic sync task — polls every 30s and fires sync when interval elapses."""
     log.info("SharePoint periodic sync task started")
 
     # At process start no sync can be running — reset any leftover "syncing" state
     SharePoints.reset_stale_syncs(max_age_seconds=0)
 
+    last_sync_time = 0.0
+
     while True:
         try:
             config = app.state.config
-            interval = getattr(config, "SHAREPOINT_SYNC_INTERVAL", 900)
             enabled = getattr(config, "ENABLE_SHAREPOINT_SYNC", False)
 
             if not enabled:
                 await asyncio.sleep(60)  # Check again in a minute
                 continue
 
-            await asyncio.sleep(interval)
+            interval = getattr(config, "SHAREPOINT_SYNC_INTERVAL", 900)
+            elapsed = time.time() - last_sync_time
 
-            # Check again after sleep in case config changed
-            if not getattr(config, "ENABLE_SHAREPOINT_SYNC", False):
+            if elapsed < interval:
+                # Poll every 30s so interval changes take effect quickly
+                await asyncio.sleep(30)
                 continue
 
             # Reset any sites stuck in "syncing" from a previous crash
@@ -745,6 +814,8 @@ async def sharepoint_sync_periodic(app):
                 await trigger_sync(app)
             except Exception as e:
                 log.error(f"Periodic sync error: {e}")
+
+            last_sync_time = time.time()
 
         except asyncio.CancelledError:
             log.info("SharePoint periodic sync task cancelled")

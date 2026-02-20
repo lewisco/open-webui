@@ -38,6 +38,9 @@ class SharePointSite(Base):
     drive_name = Column(Text, nullable=True)
 
     selected_items = Column(JSON, nullable=True)
+    sync_all = Column(Boolean, default=False)
+    display_name = Column(Text, nullable=True)
+    sync_enabled = Column(Boolean, default=True)
 
     kb_id = Column(Text, nullable=True)
     kb_name = Column(Text, nullable=True)
@@ -63,6 +66,9 @@ class SharePointSiteModel(BaseModel):
     drive_name: Optional[str] = None
 
     selected_items: Optional[list] = None
+    sync_all: bool = False
+    display_name: Optional[str] = None
+    sync_enabled: bool = True
 
     kb_id: Optional[str] = None
     kb_name: Optional[str] = None
@@ -156,6 +162,8 @@ class SharePointSiteForm(BaseModel):
     drive_id: str
     drive_name: Optional[str] = None
     selected_items: Optional[list] = None
+    sync_all: bool = False
+    display_name: Optional[str] = None
     kb_name: Optional[str] = None
     sync_mode: str = "none"
 
@@ -170,6 +178,9 @@ class SharePointConfigForm(BaseModel):
 
 class SharePointSiteUpdateForm(BaseModel):
     selected_items: Optional[list] = None
+    sync_all: Optional[bool] = None
+    display_name: Optional[str] = None
+    sync_enabled: Optional[bool] = None
     sync_mode: Optional[str] = None
     kb_name: Optional[str] = None
 
@@ -200,6 +211,9 @@ class SharePointTable:
                 site_name=form_data.site_name,
                 drive_name=form_data.drive_name,
                 selected_items=form_data.selected_items,
+                sync_all=form_data.sync_all,
+                display_name=form_data.display_name,
+                sync_enabled=True,
                 kb_id=kb_id,
                 kb_name=form_data.kb_name,
                 sync_mode=form_data.sync_mode,
