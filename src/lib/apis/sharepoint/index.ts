@@ -11,8 +11,9 @@ export const getSharePointConfig = async (token: string) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/config`, {
 		method: 'GET',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		}
 	})
 		.then(async (res) => {
@@ -20,12 +21,12 @@ export const getSharePointConfig = async (token: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -35,8 +36,9 @@ export const updateSharePointConfig = async (token: string, config: Record<strin
 	const res = await fetch(`${SHAREPOINT_API_BASE}/config`, {
 		method: 'POST',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify(config)
 	})
@@ -45,12 +47,12 @@ export const updateSharePointConfig = async (token: string, config: Record<strin
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -62,8 +64,9 @@ export const resolveSharePointSite = async (token: string, url: string) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/browse/resolve`, {
 		method: 'POST',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify({ url })
 	})
@@ -72,12 +75,12 @@ export const resolveSharePointSite = async (token: string, url: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -87,8 +90,9 @@ export const listSharePointDrives = async (token: string, siteId: string) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/browse/${encodeURIComponent(siteId)}/drives`, {
 		method: 'GET',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		}
 	})
 		.then(async (res) => {
@@ -96,12 +100,12 @@ export const listSharePointDrives = async (token: string, siteId: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -118,8 +122,9 @@ export const listSharePointItems = async (
 		{
 			method: 'GET',
 			headers: {
+				Accept: 'application/json',
 				'Content-Type': 'application/json',
-				Authorization: `Bearer ${token}`
+				authorization: `Bearer ${token}`
 			}
 		}
 	)
@@ -128,12 +133,12 @@ export const listSharePointItems = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -145,8 +150,9 @@ export const getSharePointSites = async (token: string) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites`, {
 		method: 'GET',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		}
 	})
 		.then(async (res) => {
@@ -154,12 +160,12 @@ export const getSharePointSites = async (token: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -169,8 +175,9 @@ export const addSharePointSite = async (token: string, siteData: Record<string, 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites`, {
 		method: 'POST',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify(siteData)
 	})
@@ -179,12 +186,12 @@ export const addSharePointSite = async (token: string, siteData: Record<string, 
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -198,8 +205,9 @@ export const updateSharePointSite = async (
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites/${encodeURIComponent(siteId)}`, {
 		method: 'PUT',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify(data)
 	})
@@ -208,12 +216,12 @@ export const updateSharePointSite = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -223,8 +231,9 @@ export const deleteSharePointSite = async (token: string, siteId: string) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites/${encodeURIComponent(siteId)}`, {
 		method: 'DELETE',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		}
 	})
 		.then(async (res) => {
@@ -232,12 +241,12 @@ export const deleteSharePointSite = async (token: string, siteId: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -249,8 +258,9 @@ export const getSharePointSiteFiles = async (token: string, siteId: string) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites/${encodeURIComponent(siteId)}/files`, {
 		method: 'GET',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		}
 	})
 		.then(async (res) => {
@@ -258,12 +268,12 @@ export const getSharePointSiteFiles = async (token: string, siteId: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -275,8 +285,9 @@ export const retrySharePointErrors = async (token: string, siteId: string) => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/retry/${encodeURIComponent(siteId)}`, {
 		method: 'POST',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		}
 	})
 		.then(async (res) => {
@@ -284,12 +295,12 @@ export const retrySharePointErrors = async (token: string, siteId: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -303,8 +314,9 @@ export const cancelSharePointSync = async (token: string, siteId: string) => {
 		{
 			method: 'POST',
 			headers: {
+				Accept: 'application/json',
 				'Content-Type': 'application/json',
-				Authorization: `Bearer ${token}`
+				authorization: `Bearer ${token}`
 			}
 		}
 	)
@@ -313,12 +325,12 @@ export const cancelSharePointSync = async (token: string, siteId: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -335,8 +347,9 @@ export const triggerSharePointSync = async (
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sync`, {
 		method: 'POST',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify({
 			site_id: siteId || null,
@@ -349,12 +362,12 @@ export const triggerSharePointSync = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -369,8 +382,9 @@ export const getSharePointSyncStatus = async (
 		{
 			method: 'GET',
 			headers: {
+				Accept: 'application/json',
 				'Content-Type': 'application/json',
-				Authorization: `Bearer ${token}`
+				authorization: `Bearer ${token}`
 			}
 		}
 	)
@@ -379,12 +393,12 @@ export const getSharePointSyncStatus = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.error(err);
 			error = err.detail;
+			console.error(err);
 			return null;
 		});
 
-	if (error) throw error;
+	if (error) { throw error; }
 	return res;
 };
 
@@ -399,8 +413,9 @@ export const triggerSharePointSyncStream = async (
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sync/stream`, {
 		method: 'POST',
 		headers: {
+			Accept: 'application/json',
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify({
 			site_id: siteId || null,
@@ -422,7 +437,7 @@ export const triggerSharePointSyncStream = async (
 
 	let lastEvent: Record<string, unknown> | null = null;
 
-	while (true) {
+	for (;;) {
 		const { value, done } = await reader.read();
 		if (done) break;
 
