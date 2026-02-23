@@ -386,6 +386,19 @@ async def update_sharepoint_site(
             detail=ERROR_MESSAGES.DEFAULT("Failed to update site configuration."),
         )
 
+    # Sync kb_name change to the actual Knowledge Base record
+    if form_data.kb_name is not None and updated.kb_id:
+        knowledge = Knowledges.get_knowledge_by_id(id=updated.kb_id, db=db)
+        if knowledge:
+            Knowledges.update_knowledge_by_id(
+                id=updated.kb_id,
+                form_data=KnowledgeForm(
+                    name=form_data.kb_name,
+                    description=knowledge.description,
+                ),
+                db=db,
+            )
+
     return updated
 
 
