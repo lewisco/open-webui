@@ -868,59 +868,44 @@
 			<!-- Body -->
 			<div class="px-5 pb-4 dark:text-gray-200">
 				<!-- Status bar -->
-				<div class="mb-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-850 text-xs">
-					<div class="flex items-center gap-2">
-						{#if editingSite.sync_status === 'syncing' || syncingSiteId === editingSiteId}
+				<div class="mb-4 text-xs">
+					{#if editingSite.sync_status === 'syncing' || syncingSiteId === editingSiteId}
+						<div class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
 							<div class="size-2 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
-							<span class="text-gray-600 dark:text-gray-400">
-								{#if syncingSiteId === editingSiteId && syncProgress && syncProgress.total > 0}
-									{$i18n.t('Syncing')}
-									{syncProgress.current}/{syncProgress.total}
-									{#if syncProgress.filename}
-										&mdash; <span
-											class="truncate inline-block max-w-[200px] align-bottom"
-											>{syncProgress.filename}</span
-										>
-									{/if}
-								{:else if syncingSiteId === editingSiteId && syncProgress}
-									{syncProgress.filename || $i18n.t('Discovering files...')}
-								{:else if pollProgress[editingSiteId]}
-									{@const pp = pollProgress[editingSiteId]}
-									{$i18n.t('Syncing')}
-									{pp?.current}/{pp?.total}
-									{#if pp?.filename}
-										&mdash; <span
-											class="truncate inline-block max-w-[200px] align-bottom"
-											>{pp.filename}</span
-										>
-									{/if}
-								{:else}
-									{$i18n.t('Syncing...')}
+							{#if syncingSiteId === editingSiteId && syncProgress && syncProgress.total > 0}
+								{$i18n.t('Syncing')}
+								{syncProgress.current}/{syncProgress.total}
+								{#if syncProgress.filename}
+									&mdash; <span
+										class="truncate inline-block max-w-[200px] align-bottom"
+										>{syncProgress.filename}</span
+									>
 								{/if}
-							</span>
-						{:else if editingSite.sync_status === 'error'}
-							<div class="size-2 rounded-full bg-red-500 shrink-0"></div>
-							<span class="text-red-600 dark:text-red-400">
-								{editingSite.sync_error || $i18n.t('Sync error')}
-							</span>
-						{:else}
-							<span class="text-gray-500">
-								{$i18n.t('Last sync')}: {formatTimestamp(editingSite.last_sync_at)}
-							</span>
-						{/if}
-					</div>
-					{#if editingSite.file_count + editingSite.error_count > 0}
-						<div class="mt-1 text-gray-500">
-							{editingSite.file_count + editingSite.error_count}
-							{$i18n.t('files')}
-							{#if editingSite.error_count > 0}
-								({editingSite.error_count}
-								{$i18n.t('failed')})
-							{/if}
-							{#if editingSite.sync_mode === 'filter'}
-								&middot; <span>{$i18n.t('ACL Filtered')}</span>
+							{:else if syncingSiteId === editingSiteId && syncProgress}
+								{syncProgress.filename || $i18n.t('Discovering files...')}
+							{:else if pollProgress[editingSiteId]}
+								{@const pp = pollProgress[editingSiteId]}
+								{$i18n.t('Syncing')}
+								{pp?.current}/{pp?.total}
+								{#if pp?.filename}
+									&mdash; <span
+										class="truncate inline-block max-w-[200px] align-bottom"
+										>{pp.filename}</span
+									>
+								{/if}
+							{:else}
+								{$i18n.t('Syncing...')}
 							{/if}
 						</div>
+					{:else if editingSite.sync_status === 'error'}
+						<div class="flex items-center gap-2 text-red-600 dark:text-red-400">
+							<div class="size-2 rounded-full bg-red-500 shrink-0"></div>
+							{editingSite.sync_error || $i18n.t('Sync error')}
+						</div>
+					{:else}
+						<span class="text-gray-500">
+							{$i18n.t('Last sync')}: {formatTimestamp(editingSite.last_sync_at)}
+						</span>
 					{/if}
 				</div>
 
