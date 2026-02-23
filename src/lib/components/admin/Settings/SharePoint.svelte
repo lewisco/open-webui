@@ -35,6 +35,7 @@
 	import Modal from '$lib/components/common/Modal.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
+	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import DeleteSiteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import FileBrowserModal from './SharePoint/FileBrowserModal.svelte';
 
@@ -693,20 +694,11 @@
 									type="button"
 									on:click={() => toggleFiles(site.id)}
 								>
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										viewBox="0 0 16 16"
-										fill="currentColor"
-										class="size-3 transition-transform {expandedFilesSiteId === site.id
+									<ChevronRight
+										className="size-3 transition-transform {expandedFilesSiteId === site.id
 											? 'rotate-90'
 											: ''}"
-									>
-										<path
-											fill-rule="evenodd"
-											d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06Z"
-											clip-rule="evenodd"
-										/>
-									</svg>
+									/>
 									<span>{site.file_count} {$i18n.t('synced')}</span>
 									{#if site.error_count > 0}
 										<span class="text-red-500"
@@ -838,7 +830,7 @@
 							<div class="flex items-center justify-end gap-1">
 								{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
 									<button
-										class="px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-700 text-white transition rounded-full disabled:opacity-50"
+										class="px-3.5 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition rounded-full disabled:opacity-50"
 										type="button"
 										disabled={cancellingSync}
 										on:click={() => handleCancelSync(site.id)}
@@ -847,7 +839,7 @@
 									</button>
 								{:else}
 									<button
-										class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+										class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
 										type="button"
 										disabled={syncingSiteId === site.id}
 										on:click={() => handleSync(site.id)}
@@ -872,13 +864,13 @@
 
 									<div slot="content">
 										<DropdownMenu.Content
-											class="w-full max-w-[170px] rounded-2xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+											class="w-full max-w-[170px] rounded-xl p-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-sm"
 											side="bottom"
 											align="end"
 											transition={flyAndScale}
 										>
 											<DropdownMenu.Item
-												class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl {syncingSiteId ===
+												class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md {syncingSiteId ===
 												site.id
 													? 'opacity-50 pointer-events-none'
 													: ''}"
@@ -893,7 +885,7 @@
 
 											{#if site.error_count > 0}
 												<DropdownMenu.Item
-													class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl {syncingSiteId ===
+													class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md {syncingSiteId ===
 													site.id
 														? 'opacity-50 pointer-events-none'
 														: ''}"
@@ -912,7 +904,7 @@
 											/>
 
 											<DropdownMenu.Item
-												class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+												class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md"
 												on:click={() => {
 													showSiteMenu[site.id] = false;
 													startEditSite(site);
@@ -927,7 +919,7 @@
 											/>
 
 											<DropdownMenu.Item
-												class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl text-red-500"
+												class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md text-red-500"
 												on:click={() => {
 													showSiteMenu[site.id] = false;
 													handleDeleteSite(site.id);
@@ -959,7 +951,7 @@
 								autocomplete="off"
 							/>
 							<button
-								class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+								class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
 								type="button"
 								disabled={resolving || !siteUrl.trim()}
 								on:click={handleResolve}
