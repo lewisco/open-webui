@@ -22,16 +22,10 @@
 		type SharePointSyncEvent
 	} from '$lib/apis/sharepoint';
 
-	import { DropdownMenu } from 'bits-ui';
-	import { flyAndScale } from '$lib/utils/transitions';
-	import Dropdown from '$lib/components/common/Dropdown.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
-	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
-	import ArrowPath from '$lib/components/icons/ArrowPath.svelte';
-	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
-	import Pencil from '$lib/components/icons/Pencil.svelte';
+	import Cog6 from '$lib/components/icons/Cog6.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
@@ -99,9 +93,6 @@
 	let siteFiles: Record<string, SharePointFile[]> = {};
 	let loadingFiles: Record<string, boolean> = {};
 
-	// Site dropdown menu state
-	let showSiteMenu: Record<string, boolean> = {};
-
 	// Edit site state
 	let editingSiteId: string | null = null;
 	let editSyncMode = 'none';
@@ -114,6 +105,9 @@
 	// Delete confirmation state
 	let showDeleteConfirm = false;
 	let pendingDeleteSiteId: string | null = null;
+
+	// Reactive reference to the site being edited
+	$: editingSite = editingSiteId ? (sites.find((s) => s.id === editingSiteId) ?? null) : null;
 
 	// Clean up add form state on close
 	$: if (!showAddForm) {
@@ -137,6 +131,7 @@
 		browserDriveId = '';
 		selectedItems = [];
 		showEditFileBrowser = false;
+		expandedFilesSiteId = null;
 	}
 
 	export async function submit() {
@@ -417,6 +412,7 @@
 		browserDriveId = '';
 		selectedItems = [];
 		showEditFileBrowser = false;
+		expandedFilesSiteId = null;
 	};
 
 	const handleSaveEdit = async (siteId: string) => {
@@ -616,321 +612,61 @@
 					{$i18n.t('No SharePoint sites configured')}
 				</div>
 			{:else}
-				<div class="space-y-2">
+				<div class="flex flex-col gap-1">
 					{#each sites as site}
-						<div
-							class="p-3 rounded-lg border border-gray-200 dark:border-gray-700 {site.sync_enabled ===
-							false
-								? 'opacity-60'
-								: ''}"
-						>
-							<div class="flex items-center justify-between mb-2">
-								<div>
-									<div class="text-sm font-medium">
-										{getSiteDisplayName(site)}
-									</div>
-									<div class="text-xs text-gray-500">
-										{site.drive_name || site.drive_id} &middot;
-										{site.file_count + site.error_count}
-										{$i18n.t('files')}
-										{#if site.error_count > 0}
-											({site.error_count} {$i18n.t('failed')})
-										{/if}
-										&middot;
-										{$i18n.t('Last sync')}: {formatTimestamp(site.last_sync_at)}
-										{#if site.sync_mode === 'filter'}
-											&middot; <span class="text-gray-500">{$i18n.t('ACL Filtered')}</span>
-										{/if}
-									</div>
+						<div class="flex w-full gap-2 items-center py-2">
+							<!-- Left: status dot + name -->
+							<div
+								class="flex-1 flex gap-1.5 items-center min-w-0 {site.sync_enabled === false
+									? 'opacity-50'
+									: ''}"
+							>
+								<div class="shrink-0">
+									{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
+										<div class="size-2 rounded-full bg-blue-500 animate-pulse"></div>
+									{:else if site.sync_status === 'error'}
+										<div class="size-2 rounded-full bg-red-500"></div>
+									{:else if site.last_sync_at}
+										<div class="size-2 rounded-full bg-green-500"></div>
+									{:else}
+										<div class="size-2 rounded-full bg-gray-400"></div>
+									{/if}
 								</div>
-								<div class="flex items-center gap-2">
-									<div class="flex items-center gap-1" aria-live="polite">
-										{#if site.sync_enabled === false}
-											<span class="text-xs text-gray-500">{$i18n.t('Paused')}</span>
-										{:else if site.sync_status === 'syncing' || syncingSiteId === site.id}
-											<span
-												class="text-xs text-gray-600 dark:text-gray-400 text-right max-w-[200px]"
-											>
-												{#if syncingSiteId === site.id && syncProgress && syncProgress.total > 0}
-													{syncProgress.current}/{syncProgress.total}
-													{#if syncProgress.filename}
-														&mdash; <span class="inline-block max-w-[120px] truncate align-bottom"
-															>{syncProgress.filename}</span
-														>
-													{/if}
-												{:else if syncingSiteId === site.id && syncProgress}
-													{syncProgress.filename || $i18n.t('Discovering files...')}
-												{:else if pollProgress[site.id]}
-													{@const pp = pollProgress[site.id]}
-													{pp?.current}/{pp?.total}
-													{#if pp?.filename}
-														&mdash; <span class="inline-block max-w-[120px] truncate align-bottom"
-															>{pp.filename}</span
-														>
-													{/if}
-												{:else}
-													{$i18n.t('Syncing...')}
-												{/if}
-											</span>
-										{:else if site.sync_status === 'error'}
-											<Tooltip content={site.sync_error || 'Unknown error'}>
-												<span class="text-xs text-red-600">
-													{$i18n.t('Error')}
-												</span>
-											</Tooltip>
-										{/if}
-									</div>
+
+								<div class="flex items-center gap-1.5 min-w-0">
+									<span class="text-sm font-medium truncate">
+										{getSiteDisplayName(site)}
+									</span>
+									{#if site.drive_name}
+										<span class="text-xs text-gray-500 truncate">
+											{site.drive_name}
+										</span>
+									{/if}
+								</div>
+							</div>
+
+							<!-- Right: gear + toggle -->
+							<div class="flex gap-1 items-center shrink-0">
+								<Tooltip content={$i18n.t('Configure')}>
+									<button
+										class="self-center p-1 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-850 rounded-lg transition"
+										type="button"
+										on:click={() => startEditSite(site)}
+									>
+										<Cog6 />
+									</button>
+								</Tooltip>
+
+								<Tooltip
+									content={site.sync_enabled !== false
+										? $i18n.t('Enabled')
+										: $i18n.t('Disabled')}
+								>
 									<Switch
 										state={site.sync_enabled !== false}
 										on:change={() => handleToggleSyncEnabled(site)}
 									/>
-								</div>
-							</div>
-
-							<!-- File status breakdown -->
-							<div class="mb-2">
-								<button
-									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition"
-									type="button"
-									on:click={() => toggleFiles(site.id)}
-								>
-									<ChevronRight
-										className="size-3 transition-transform {expandedFilesSiteId === site.id
-											? 'rotate-90'
-											: ''}"
-									/>
-									<span>{site.file_count} {$i18n.t('synced')}</span>
-									{#if site.error_count > 0}
-										<span class="text-red-500"
-											>&middot; {site.error_count} {$i18n.t('error(s)')}</span
-										>
-									{/if}
-									{#if site.excluded_count > 0}
-										<span class="text-gray-400"
-											>&middot; {site.excluded_count} {$i18n.t('excluded')}</span
-										>
-									{/if}
-								</button>
-
-								{#if expandedFilesSiteId === site.id}
-									<div
-										class="mt-2 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden max-h-64 overflow-y-auto"
-									>
-										{#if loadingFiles[site.id]}
-											<div class="p-3 text-xs text-gray-500 text-center">
-												{$i18n.t('Loading...')}
-											</div>
-										{:else if !siteFiles[site.id] || siteFiles[site.id].length === 0}
-											<div class="p-3 text-xs text-gray-500 text-center">
-												{$i18n.t('No files tracked')}
-											</div>
-										{:else}
-											{#each siteFiles[site.id] as file}
-												<div
-													class="flex items-start gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
-												>
-													<!-- Status icon -->
-													{#if file.excluded}
-														<div class="mt-0.5 shrink-0">
-															<svg
-																xmlns="http://www.w3.org/2000/svg"
-																viewBox="0 0 16 16"
-																fill="currentColor"
-																class="size-3.5 text-gray-400"
-															>
-																<path
-																	fill-rule="evenodd"
-																	d="M3.05 3.05a7 7 0 1 1 9.9 9.9 7 7 0 0 1-9.9-9.9Zm1.627.918a5.5 5.5 0 0 0 7.355 7.355L4.677 3.968ZM11.323 12.032 4.968 5.677a5.5 5.5 0 0 0 6.355 6.355Z"
-																	clip-rule="evenodd"
-																/>
-															</svg>
-														</div>
-													{:else if file.sync_status === 'error'}
-														<div class="mt-0.5 shrink-0">
-															<svg
-																xmlns="http://www.w3.org/2000/svg"
-																viewBox="0 0 16 16"
-																fill="currentColor"
-																class="size-3.5 text-red-500"
-															>
-																<path
-																	fill-rule="evenodd"
-																	d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
-																	clip-rule="evenodd"
-																/>
-															</svg>
-														</div>
-													{:else}
-														<div class="mt-0.5 shrink-0">
-															<svg
-																xmlns="http://www.w3.org/2000/svg"
-																viewBox="0 0 16 16"
-																fill="currentColor"
-																class="size-3.5 text-green-500"
-															>
-																<path
-																	fill-rule="evenodd"
-																	d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
-																	clip-rule="evenodd"
-																/>
-															</svg>
-														</div>
-													{/if}
-
-													<!-- File info -->
-													<div class="flex-1 min-w-0">
-														<div class="flex items-center gap-2">
-															<span class="text-xs font-medium truncate">
-																{file.filename || 'Unknown'}
-															</span>
-															{#if file.excluded}
-																<span
-																	class="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-gray-100 dark:bg-gray-800 text-gray-500"
-																>
-																	{$i18n.t('Excluded')}
-																</span>
-															{:else if file.sync_status === 'error'}
-																<span
-																	class="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"
-																>
-																	{$i18n.t('Error')}
-																</span>
-															{:else}
-																<span
-																	class="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400"
-																>
-																	{$i18n.t('Synced')}
-																</span>
-															{/if}
-														</div>
-														<div class="text-[11px] text-gray-400 truncate">
-															{file.sp_item_path || ''}
-															{#if file.sync_error}
-																<Tooltip content={file.sync_error}>
-																	<span class="text-red-400 dark:text-red-500">
-																		&mdash; {file.sync_error.length > 80
-																			? file.sync_error.slice(0, 80) + '...'
-																			: file.sync_error}
-																	</span>
-																</Tooltip>
-															{:else if file.excluded}
-																<span>
-																	&mdash; {$i18n.t('Removed from Knowledge Base by user')}
-																</span>
-															{/if}
-														</div>
-													</div>
-												</div>
-											{/each}
-										{/if}
-									</div>
-								{/if}
-							</div>
-
-							<div class="flex items-center justify-end gap-1">
-								{#if site.sync_status === 'syncing' || syncingSiteId === site.id}
-									<button
-										class="px-3.5 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition rounded-full disabled:opacity-50"
-										type="button"
-										disabled={cancellingSync}
-										on:click={() => handleCancelSync(site.id)}
-									>
-										{cancellingSync ? $i18n.t('Cancelling...') : $i18n.t('Cancel Sync')}
-									</button>
-								{:else}
-									<button
-										class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
-										type="button"
-										disabled={syncingSiteId === site.id}
-										on:click={() => handleSync(site.id)}
-									>
-										{$i18n.t('Sync Now')}
-									</button>
-								{/if}
-
-								<Dropdown bind:show={showSiteMenu[site.id]} align="end">
-									<Tooltip content={$i18n.t('More')}>
-										<button
-											class="self-center w-fit text-sm p-1.5 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
-											type="button"
-											on:click={(e) => {
-												e.stopPropagation();
-												showSiteMenu[site.id] = true;
-											}}
-										>
-											<EllipsisHorizontal className="size-5" />
-										</button>
-									</Tooltip>
-
-									<div slot="content">
-										<DropdownMenu.Content
-											class="w-full max-w-[170px] rounded-xl p-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-sm"
-											side="bottom"
-											align="end"
-											transition={flyAndScale}
-										>
-											<DropdownMenu.Item
-												class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md {syncingSiteId ===
-												site.id
-													? 'opacity-50 pointer-events-none'
-													: ''}"
-												on:click={() => {
-													showSiteMenu[site.id] = false;
-													handleSync(site.id, true, true);
-												}}
-											>
-												<ArrowPath />
-												<div class="flex items-center">{$i18n.t('Force Sync')}</div>
-											</DropdownMenu.Item>
-
-											{#if site.error_count > 0}
-												<DropdownMenu.Item
-													class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md {syncingSiteId ===
-													site.id
-														? 'opacity-50 pointer-events-none'
-														: ''}"
-													on:click={() => {
-														showSiteMenu[site.id] = false;
-														handleRetryErrors(site.id);
-													}}
-												>
-													<ArrowPath />
-													<div class="flex items-center">{$i18n.t('Retry Errors')}</div>
-												</DropdownMenu.Item>
-											{/if}
-
-											<DropdownMenu.Separator
-												class="my-0.5 border-t border-gray-100 dark:border-gray-800"
-											/>
-
-											<DropdownMenu.Item
-												class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md"
-												on:click={() => {
-													showSiteMenu[site.id] = false;
-													startEditSite(site);
-												}}
-											>
-												<Pencil />
-												<div class="flex items-center">{$i18n.t('Edit')}</div>
-											</DropdownMenu.Item>
-
-											<DropdownMenu.Separator
-												class="my-0.5 border-t border-gray-100 dark:border-gray-800"
-											/>
-
-											<DropdownMenu.Item
-												class="select-none flex gap-2 items-center px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md text-red-500"
-												on:click={() => {
-													showSiteMenu[site.id] = false;
-													handleDeleteSite(site.id);
-												}}
-											>
-												<GarbageBin />
-												<div class="flex items-center">{$i18n.t('Remove')}</div>
-											</DropdownMenu.Item>
-										</DropdownMenu.Content>
-									</div>
-								</Dropdown>
+								</Tooltip>
 							</div>
 						</div>
 					{/each}
@@ -951,7 +687,7 @@
 								autocomplete="off"
 							/>
 							<button
-								class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+								class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
 								type="button"
 								disabled={resolving || !siteUrl.trim()}
 								on:click={handleResolve}
@@ -1128,9 +864,109 @@
 			</button>
 		</div>
 
-		{#if editingSiteId}
+		{#if editingSiteId && editingSite}
 			<!-- Body -->
 			<div class="px-5 pb-4 dark:text-gray-200">
+				<!-- Status bar -->
+				<div class="mb-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-850 text-xs">
+					<div class="flex items-center gap-2">
+						{#if editingSite.sync_status === 'syncing' || syncingSiteId === editingSiteId}
+							<div class="size-2 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
+							<span class="text-gray-600 dark:text-gray-400">
+								{#if syncingSiteId === editingSiteId && syncProgress && syncProgress.total > 0}
+									{$i18n.t('Syncing')}
+									{syncProgress.current}/{syncProgress.total}
+									{#if syncProgress.filename}
+										&mdash; <span
+											class="truncate inline-block max-w-[200px] align-bottom"
+											>{syncProgress.filename}</span
+										>
+									{/if}
+								{:else if syncingSiteId === editingSiteId && syncProgress}
+									{syncProgress.filename || $i18n.t('Discovering files...')}
+								{:else if pollProgress[editingSiteId]}
+									{@const pp = pollProgress[editingSiteId]}
+									{$i18n.t('Syncing')}
+									{pp?.current}/{pp?.total}
+									{#if pp?.filename}
+										&mdash; <span
+											class="truncate inline-block max-w-[200px] align-bottom"
+											>{pp.filename}</span
+										>
+									{/if}
+								{:else}
+									{$i18n.t('Syncing...')}
+								{/if}
+							</span>
+						{:else if editingSite.sync_status === 'error'}
+							<div class="size-2 rounded-full bg-red-500 shrink-0"></div>
+							<span class="text-red-600 dark:text-red-400">
+								{editingSite.sync_error || $i18n.t('Sync error')}
+							</span>
+						{:else}
+							<span class="text-gray-500">
+								{$i18n.t('Last sync')}: {formatTimestamp(editingSite.last_sync_at)}
+							</span>
+						{/if}
+					</div>
+					{#if editingSite.file_count + editingSite.error_count > 0}
+						<div class="mt-1 text-gray-500">
+							{editingSite.file_count + editingSite.error_count}
+							{$i18n.t('files')}
+							{#if editingSite.error_count > 0}
+								({editingSite.error_count}
+								{$i18n.t('failed')})
+							{/if}
+							{#if editingSite.sync_mode === 'filter'}
+								&middot; <span>{$i18n.t('ACL Filtered')}</span>
+							{/if}
+						</div>
+					{/if}
+				</div>
+
+				<!-- Sync Actions -->
+				<div class="mb-4 flex items-center gap-2">
+					{#if editingSite.sync_status === 'syncing' || syncingSiteId === editingSiteId}
+						<button
+							class="px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-700 text-white transition rounded-full disabled:opacity-50"
+							type="button"
+							disabled={cancellingSync}
+							on:click={() => editingSiteId && handleCancelSync(editingSiteId)}
+						>
+							{cancellingSync ? $i18n.t('Cancelling...') : $i18n.t('Cancel Sync')}
+						</button>
+					{:else}
+						<button
+							class="px-3 py-1 text-xs font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+							type="button"
+							disabled={syncingSiteId === editingSiteId}
+							on:click={() => editingSiteId && handleSync(editingSiteId)}
+						>
+							{$i18n.t('Sync Now')}
+						</button>
+						<button
+							class="px-3 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition"
+							type="button"
+							disabled={syncingSiteId === editingSiteId}
+							on:click={() => editingSiteId && handleSync(editingSiteId, true, true)}
+						>
+							{$i18n.t('Force Sync')}
+						</button>
+						{#if editingSite.error_count > 0}
+							<button
+								class="px-3 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition"
+								type="button"
+								disabled={syncingSiteId === editingSiteId}
+								on:click={() => editingSiteId && handleRetryErrors(editingSiteId)}
+							>
+								{$i18n.t('Retry Errors')}
+							</button>
+						{/if}
+					{/if}
+				</div>
+
+				<hr class="border-gray-100 dark:border-gray-800 my-3" />
+
 				<!-- Name -->
 				<div class="mb-3">
 					<div class="mb-1 text-xs font-medium">
@@ -1228,10 +1064,163 @@
 						{/if}
 					</div>
 				{/if}
+
+				<!-- Collapsible Files list -->
+				<div class="mt-4">
+					<button
+						class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition"
+						type="button"
+						on:click={() => editingSiteId && toggleFiles(editingSiteId)}
+					>
+						<ChevronRight
+							className="size-3 transition-transform {expandedFilesSiteId === editingSiteId
+								? 'rotate-90'
+								: ''}"
+						/>
+						<span>{editingSite.file_count} {$i18n.t('synced')}</span>
+						{#if editingSite.error_count > 0}
+							<span class="text-red-500"
+								>&middot; {editingSite.error_count} {$i18n.t('error(s)')}</span
+							>
+						{/if}
+						{#if editingSite.excluded_count > 0}
+							<span class="text-gray-400"
+								>&middot; {editingSite.excluded_count} {$i18n.t('excluded')}</span
+							>
+						{/if}
+					</button>
+
+					{#if expandedFilesSiteId === editingSiteId}
+						<div
+							class="mt-2 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden max-h-64 overflow-y-auto"
+						>
+							{#if loadingFiles[editingSiteId]}
+								<div class="p-3 text-xs text-gray-500 text-center">
+									{$i18n.t('Loading...')}
+								</div>
+							{:else if !siteFiles[editingSiteId] || siteFiles[editingSiteId].length === 0}
+								<div class="p-3 text-xs text-gray-500 text-center">
+									{$i18n.t('No files tracked')}
+								</div>
+							{:else}
+								{#each siteFiles[editingSiteId] as file}
+									<div
+										class="flex items-start gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+									>
+										<!-- Status icon -->
+										{#if file.excluded}
+											<div class="mt-0.5 shrink-0">
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 16 16"
+													fill="currentColor"
+													class="size-3.5 text-gray-400"
+												>
+													<path
+														fill-rule="evenodd"
+														d="M3.05 3.05a7 7 0 1 1 9.9 9.9 7 7 0 0 1-9.9-9.9Zm1.627.918a5.5 5.5 0 0 0 7.355 7.355L4.677 3.968ZM11.323 12.032 4.968 5.677a5.5 5.5 0 0 0 6.355 6.355Z"
+														clip-rule="evenodd"
+													/>
+												</svg>
+											</div>
+										{:else if file.sync_status === 'error'}
+											<div class="mt-0.5 shrink-0">
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 16 16"
+													fill="currentColor"
+													class="size-3.5 text-red-500"
+												>
+													<path
+														fill-rule="evenodd"
+														d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+														clip-rule="evenodd"
+													/>
+												</svg>
+											</div>
+										{:else}
+											<div class="mt-0.5 shrink-0">
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 16 16"
+													fill="currentColor"
+													class="size-3.5 text-green-500"
+												>
+													<path
+														fill-rule="evenodd"
+														d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
+														clip-rule="evenodd"
+													/>
+												</svg>
+											</div>
+										{/if}
+
+										<!-- File info -->
+										<div class="flex-1 min-w-0">
+											<div class="flex items-center gap-2">
+												<span class="text-xs font-medium truncate">
+													{file.filename || 'Unknown'}
+												</span>
+												{#if file.excluded}
+													<span
+														class="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-gray-100 dark:bg-gray-800 text-gray-500"
+													>
+														{$i18n.t('Excluded')}
+													</span>
+												{:else if file.sync_status === 'error'}
+													<span
+														class="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"
+													>
+														{$i18n.t('Error')}
+													</span>
+												{:else}
+													<span
+														class="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400"
+													>
+														{$i18n.t('Synced')}
+													</span>
+												{/if}
+											</div>
+											<div class="text-[11px] text-gray-400 truncate">
+												{file.sp_item_path || ''}
+												{#if file.sync_error}
+													<Tooltip content={file.sync_error}>
+														<span class="text-red-400 dark:text-red-500">
+															&mdash; {file.sync_error.length > 80
+																? file.sync_error.slice(0, 80) + '...'
+																: file.sync_error}
+														</span>
+													</Tooltip>
+												{:else if file.excluded}
+													<span>
+														&mdash; {$i18n.t('Removed from Knowledge Base by user')}
+													</span>
+												{/if}
+											</div>
+										</div>
+									</div>
+								{/each}
+							{/if}
+						</div>
+					{/if}
+				</div>
 			</div>
 
 			<!-- Footer -->
-			<div class="flex justify-end px-5 pb-4">
+			<div class="flex justify-between px-5 pb-4">
+				<button
+					class="px-3 py-1.5 text-sm font-medium text-red-500 hover:text-red-600 dark:hover:text-red-400 transition"
+					type="button"
+					on:click={() => {
+						if (editingSiteId) {
+							handleDeleteSite(editingSiteId);
+							cancelEditSite();
+						}
+					}}
+				>
+					{$i18n.t('Delete')}
+				</button>
+
 				<button
 					class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
 					type="button"
