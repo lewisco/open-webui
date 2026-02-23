@@ -18,13 +18,15 @@
 	export let show = false;
 	export let driveId = '';
 	export let initialSelectedItems: SharePointSelectedItem[] = [];
+	export let inline = false;
+	export let onConfirm: ((items: SharePointSelectedItem[]) => void) | null = null;
 
 	let browserItems: SharePointBrowserItem[] = [];
 	let loadingItems = false;
 	let browserStack: { id: string | null; name: string }[] = [{ id: null, name: 'Root' }];
 	let selectedItems: SharePointSelectedItem[] = [];
 
-	// When modal opens, deep-copy initial selections and load root items
+	// When modal opens (or inline becomes visible), deep-copy initial selections and load root items
 	$: if (show && driveId) {
 		selectedItems = initialSelectedItems.map((item) => ({ ...item }));
 		browserStack = [{ id: null, name: 'Root' }];
@@ -96,127 +98,140 @@
 	};
 
 	const handleConfirm = () => {
+		if (onConfirm) {
+			onConfirm(selectedItems);
+		}
 		dispatch('confirm', selectedItems);
 		show = false;
 	};
 </script>
 
-<Modal size="md" bind:show>
-	<div>
-		<!-- Header -->
-		<div class="flex justify-between dark:text-gray-100 px-5 pt-4 pb-1.5">
-			<div class="text-lg font-medium self-center font-primary">
-				{$i18n.t('Select files and folders to sync')}
-			</div>
+{#snippet browserContent()}
+	<!-- Breadcrumb -->
+	<nav
+		aria-label={$i18n.t('Breadcrumb')}
+		class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap"
+	>
+		{#each browserStack as crumb, idx}
+			{#if idx > 0}
+				<span aria-hidden="true">/</span>
+			{/if}
 			<button
-				class="self-center"
-				aria-label={$i18n.t('Close modal')}
-				on:click={() => {
-					show = false;
-				}}
-			>
-				<XMark className="size-5" />
-			</button>
-		</div>
-
-		<!-- Body -->
-		<div class="px-5 pb-4 dark:text-gray-200">
-			<!-- Breadcrumb -->
-			<nav
-				aria-label={$i18n.t('Breadcrumb')}
-				class="flex items-center gap-1 text-xs text-gray-500 mb-2 flex-wrap"
-			>
-				{#each browserStack as crumb, idx}
-					{#if idx > 0}
-						<span aria-hidden="true">/</span>
-					{/if}
-					<button
-						class="hover:text-gray-700 dark:hover:text-gray-300"
-						type="button"
-						on:click={() => navigateToBreadcrumb(idx)}
-					>
-						{crumb.name}
-					</button>
-				{/each}
-			</nav>
-
-			<!-- Items list -->
-			<div class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-80 overflow-y-auto">
-				{#if loadingItems}
-					<div class="p-3 text-xs text-gray-500 text-center">
-						{$i18n.t('Loading...')}
-					</div>
-				{:else if browserItems.length === 0}
-					<div class="p-3 text-xs text-gray-500 text-center">
-						{$i18n.t('No items found')}
-					</div>
-				{:else}
-					{#each browserItems as item}
-						<div
-							class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
-						>
-							<label class="flex items-center gap-2 flex-1 cursor-pointer">
-								<input
-									type="checkbox"
-									checked={isItemSelected(item.id)}
-									on:change={() => toggleItemSelection(item)}
-									class="rounded"
-								/>
-								<span class="text-xs flex items-center gap-1">
-									{#if item.isFolder}
-										<Folder className="size-3.5 shrink-0" />
-									{:else}
-										<Document className="size-3.5 shrink-0" />
-									{/if}
-									{item.name}
-									{#if item.isFolder && !isItemSelected(item.id)}
-										{@const descendantCount = countDescendantSelections(item.name)}
-										{#if descendantCount > 0}
-											<span class="text-[10px] text-gray-400 ml-1">
-												({descendantCount} inside)
-											</span>
-										{/if}
-									{/if}
-								</span>
-							</label>
-
-							{#if item.isFolder}
-								<button
-									class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
-									type="button"
-									on:click={() => navigateToFolder(item.id, item.name)}
-								>
-									{$i18n.t('Browse')}
-								</button>
-							{:else}
-								<span class="text-xs text-gray-400">
-									{item.size > 1048576
-										? `${(item.size / 1048576).toFixed(1)} MB`
-										: `${(item.size / 1024).toFixed(0)} KB`}
-								</span>
-							{/if}
-						</div>
-					{/each}
-				{/if}
-			</div>
-		</div>
-
-		<!-- Footer -->
-		<div class="flex items-center justify-between px-5 pb-4">
-			<div class="text-xs text-gray-500">
-				{#if selectedItems.length > 0}
-					{selectedItems.length} {$i18n.t('item(s) selected')}
-				{:else}
-					{$i18n.t('No items selected')}
-				{/if}
-			</div>
-			<button
-				class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+				class="hover:text-gray-700 dark:hover:text-gray-300"
 				type="button"
-				on:click={handleConfirm}
+				on:click={() => navigateToBreadcrumb(idx)}
 			>
-				{$i18n.t('Done')}
+				{crumb.name}
 			</button>
-		</div>
+		{/each}
+	</nav>
+
+	<!-- Items list -->
+	<div class="border border-gray-200 dark:border-gray-700 rounded-lg max-h-80 overflow-y-auto">
+		{#if loadingItems}
+			<div class="p-3 text-xs text-gray-500 text-center">
+				{$i18n.t('Loading...')}
+			</div>
+		{:else if browserItems.length === 0}
+			<div class="p-3 text-xs text-gray-500 text-center">
+				{$i18n.t('No items found')}
+			</div>
+		{:else}
+			{#each browserItems as item}
+				<div
+					class="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+				>
+					<label class="flex items-center gap-2 flex-1 cursor-pointer">
+						<input
+							type="checkbox"
+							checked={isItemSelected(item.id)}
+							on:change={() => toggleItemSelection(item)}
+							class="rounded"
+						/>
+						<span class="text-xs flex items-center gap-1">
+							{#if item.isFolder}
+								<Folder className="size-3.5 shrink-0" />
+							{:else}
+								<Document className="size-3.5 shrink-0" />
+							{/if}
+							{item.name}
+							{#if item.isFolder && !isItemSelected(item.id)}
+								{@const descendantCount = countDescendantSelections(item.name)}
+								{#if descendantCount > 0}
+									<span class="text-[10px] text-gray-400 ml-1">
+										({descendantCount} inside)
+									</span>
+								{/if}
+							{/if}
+						</span>
+					</label>
+
+					{#if item.isFolder}
+						<button
+							class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 ml-2"
+							type="button"
+							on:click={() => navigateToFolder(item.id, item.name)}
+						>
+							{$i18n.t('Browse')}
+						</button>
+					{:else}
+						<span class="text-xs text-gray-400">
+							{item.size > 1048576
+								? `${(item.size / 1048576).toFixed(1)} MB`
+								: `${(item.size / 1024).toFixed(0)} KB`}
+						</span>
+					{/if}
+				</div>
+			{/each}
+		{/if}
 	</div>
-</Modal>
+
+	<!-- Footer -->
+	<div class="flex items-center justify-between mt-3">
+		<div class="text-xs text-gray-500">
+			{#if selectedItems.length > 0}
+				{selectedItems.length} {$i18n.t('item(s) selected')}
+			{:else}
+				{$i18n.t('No items selected')}
+			{/if}
+		</div>
+		<button
+			class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full disabled:opacity-50"
+			type="button"
+			on:click={handleConfirm}
+		>
+			{$i18n.t('Done')}
+		</button>
+	</div>
+{/snippet}
+
+{#if inline}
+	<div class="dark:text-gray-200">
+		{@render browserContent()}
+	</div>
+{:else}
+	<Modal size="md" bind:show>
+		<div>
+			<!-- Header -->
+			<div class="flex justify-between dark:text-gray-100 px-5 pt-4 pb-1.5">
+				<div class="text-lg font-medium self-center font-primary">
+					{$i18n.t('Select files and folders to sync')}
+				</div>
+				<button
+					class="self-center"
+					aria-label={$i18n.t('Close modal')}
+					on:click={() => {
+						show = false;
+					}}
+				>
+					<XMark className="size-5" />
+				</button>
+			</div>
+
+			<!-- Body -->
+			<div class="px-5 pb-4 dark:text-gray-200">
+				{@render browserContent()}
+			</div>
+		</div>
+	</Modal>
+{/if}

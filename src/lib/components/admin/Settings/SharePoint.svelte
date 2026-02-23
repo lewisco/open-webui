@@ -612,9 +612,9 @@
 					{$i18n.t('No SharePoint sites configured')}
 				</div>
 			{:else}
-				<div class="flex flex-col gap-1">
+				<div class="flex flex-col gap-1.5">
 					{#each sites as site}
-						<div class="flex w-full gap-2 items-center py-2">
+						<div class="flex w-full gap-2 items-center py-1">
 							<!-- Left: status dot + name -->
 							<div
 								class="flex-1 flex gap-1.5 items-center min-w-0 {site.sync_enabled === false
@@ -1033,7 +1033,7 @@
 					</div>
 				</div>
 
-				<!-- File selection button for edit (hidden when editSyncAll is on) -->
+				<!-- File selection for edit (hidden when editSyncAll is on) -->
 				{#if !editSyncAll}
 					<div class="mb-3">
 						<div class="mb-1 text-xs font-medium">
@@ -1043,7 +1043,7 @@
 							class="w-full text-left px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition"
 							type="button"
 							on:click={() => {
-								showEditFileBrowser = true;
+								showEditFileBrowser = !showEditFileBrowser;
 							}}
 						>
 							{#if selectedItems.length > 0}
@@ -1057,9 +1057,24 @@
 								</span>
 							{/if}
 						</button>
-						{#if selectedItems.length === 0}
+						{#if !showEditFileBrowser && selectedItems.length === 0}
 							<div class="mt-1.5 text-xs text-gray-400">
 								{$i18n.t("Select files or folders to sync, or enable 'Sync all files'")}
+							</div>
+						{/if}
+
+						{#if showEditFileBrowser}
+							<div class="mt-2">
+								<FileBrowserModal
+									inline={true}
+									show={true}
+									driveId={browserDriveId}
+									initialSelectedItems={selectedItems}
+									onConfirm={(items) => {
+										selectedItems = items;
+										showEditFileBrowser = false;
+									}}
+								/>
 							</div>
 						{/if}
 					</div>
@@ -1244,12 +1259,3 @@
 	}}
 />
 
-<!-- File Browser Modal (for Edit Site flow) -->
-<FileBrowserModal
-	bind:show={showEditFileBrowser}
-	driveId={browserDriveId}
-	initialSelectedItems={selectedItems}
-	on:confirm={(e) => {
-		selectedItems = e.detail;
-	}}
-/>
