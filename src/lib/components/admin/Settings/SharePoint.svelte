@@ -614,7 +614,7 @@
 			{:else}
 				<div class="flex flex-col gap-1.5">
 					{#each sites as site}
-						<div class="flex w-full gap-2 items-center py-1">
+						<div class="flex w-full gap-2 items-center">
 							<!-- Left: status dot + name -->
 							<div
 								class="flex-1 flex gap-1.5 items-center min-w-0 {site.sync_enabled === false
