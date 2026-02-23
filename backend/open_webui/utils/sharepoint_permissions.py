@@ -10,6 +10,7 @@ each SharePointFile) and checked at retrieval time against the current
 user's email and group memberships (resolved via Microsoft Graph API).
 """
 
+import collections
 import logging
 import os
 import threading
@@ -18,8 +19,10 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-# In-memory cache for user group memberships: {email: (groups, timestamp)}
-_group_cache: dict[str, tuple[list[str], float]] = {}
+# In-memory LRU cache for user group memberships: {email: (groups, timestamp)}
+_group_cache: collections.OrderedDict[str, tuple[list[str], float]] = (
+    collections.OrderedDict()
+)
 _group_cache_lock = threading.Lock()
 _GROUP_CACHE_TTL = int(os.environ.get("SHAREPOINT_GROUP_CACHE_TTL", "300"))  # seconds
 _GROUP_CACHE_MAX_SIZE = 10_000
@@ -34,6 +37,7 @@ def _get_user_groups(app, user_email: str) -> list[str]:
     with _group_cache_lock:
         cached = _group_cache.get(user_email)
         if cached and (now - cached[1]) < _GROUP_CACHE_TTL:
+            _group_cache.move_to_end(user_email)
             return cached[0]
 
     try:
@@ -54,13 +58,9 @@ def _get_user_groups(app, user_email: str) -> list[str]:
             f"{user_email}: {groups}"
         )
         with _group_cache_lock:
-            # Evict oldest entries if cache exceeds max size
-            if len(_group_cache) >= _GROUP_CACHE_MAX_SIZE:
-                sorted_keys = sorted(
-                    _group_cache, key=lambda k: _group_cache[k][1]
-                )
-                for k in sorted_keys[: len(_group_cache) - _GROUP_CACHE_MAX_SIZE + 1]:
-                    del _group_cache[k]
+            # Evict oldest entries (LRU) if cache exceeds max size
+            while len(_group_cache) >= _GROUP_CACHE_MAX_SIZE:
+                _group_cache.popitem(last=False)
             _group_cache[user_email] = (groups, now)
         return groups
     except Exception as e:
@@ -115,9 +115,7 @@ def _resolve_sp_context(
 
     site_ids = list({f.site_config_id for f in sp_file_list})
     site_list = SharePoints.get_sites_by_ids(site_ids)
-    filter_sites = {
-        s.id for s in site_list if s and s.sync_mode == "filter"
-    }
+    filter_sites = {s.id for s in site_list if s and s.sync_mode == "filter"}
     if not filter_sites:
         return None
 
@@ -129,8 +127,7 @@ def _resolve_sp_context(
         user_email = ""
 
     log.debug(
-        f"SharePoint filter: checking permissions for "
-        f"user_email='{user_email}'"
+        f"SharePoint filter: checking permissions for " f"user_email='{user_email}'"
     )
 
     if not user_email:
@@ -288,7 +285,8 @@ def filter_sources_by_sharepoint_permissions(
         log.error(f"SharePoint permission filter (sources) error: {e}")
         # Fail closed: remove all entries whose file_id is in the SP set
         return [
-            s for s in sources
+            s
+            for s in sources
             if not any(
                 (m or {}).get("file_id") in all_file_ids
                 for m in (s.get("metadata") or [])

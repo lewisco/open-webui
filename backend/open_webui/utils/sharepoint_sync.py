@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import mimetypes
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -20,11 +21,13 @@ SYNC_USER_ID = "sharepoint-sync"
 
 # Module-level progress tracking for pollable sync status
 _sync_progress: dict[str, dict] = {}
+_sync_progress_lock = threading.Lock()
 
 
 def get_sync_progress(site_id: str) -> dict | None:
     """Return the current sync progress for a site, or None if not actively syncing."""
-    return _sync_progress.get(site_id)
+    with _sync_progress_lock:
+        return _sync_progress.get(site_id)
 
 
 @dataclass
@@ -33,6 +36,7 @@ class _SyncUser:
     Uses 'user' role (not 'admin') — it only needs access to files
     it created itself (matched via SYNC_USER_ID).
     """
+
     id: str = SYNC_USER_ID
     role: str = "user"
     name: str = "SharePoint Sync"
@@ -42,6 +46,7 @@ class _SyncUser:
 @dataclass
 class _SyncRequest:
     """Lightweight request wrapper for internal process_file calls."""
+
     app: object = None
 
 
@@ -136,9 +141,7 @@ def _process_and_embed_file(app, file_id: str, kb_id: str):
         try:
             process_file(
                 request=sync_request,
-                form_data=ProcessFileForm(
-                    file_id=file_id, collection_name=kb_id
-                ),
+                form_data=ProcessFileForm(file_id=file_id, collection_name=kb_id),
                 user=sync_user,
                 db=db,
             )
@@ -208,7 +211,8 @@ def sync_site_stream(app, site_config):
                             "sync_error": f"KB was deleted and recreation failed: {e}",
                         },
                     )
-                    _sync_progress.pop(site_id, None)
+                    with _sync_progress_lock:
+                        _sync_progress.pop(site_id, None)
                     yield {
                         "type": "error",
                         "site_id": site_id,
@@ -224,7 +228,8 @@ def sync_site_stream(app, site_config):
         )
 
         # Immediate feedback before delta pagination begins
-        _sync_progress[site_id] = {"current": 0, "total": 0, "filename": ""}
+        with _sync_progress_lock:
+            _sync_progress[site_id] = {"current": 0, "total": 0, "filename": ""}
         yield {
             "type": "started",
             "site_id": site_id,
@@ -241,11 +246,12 @@ def sync_site_stream(app, site_config):
             items.extend(page_items)
             if dl is not None:
                 new_delta_link = dl
-            _sync_progress[site_id] = {
-                "current": 0,
-                "total": 0,
-                "filename": "",
-            }
+            with _sync_progress_lock:
+                _sync_progress[site_id] = {
+                    "current": 0,
+                    "total": 0,
+                    "filename": "",
+                }
             yield {
                 "type": "discovering",
                 "site_id": site_id,
@@ -283,7 +289,12 @@ def sync_site_stream(app, site_config):
             f"{len(deletions)} deletions"
         )
 
-        _sync_progress[site_id] = {"current": 0, "total": total_files, "filename": ""}
+        with _sync_progress_lock:
+            _sync_progress[site_id] = {
+                "current": 0,
+                "total": total_files,
+                "filename": "",
+            }
 
         yield {
             "type": "discovery",
@@ -303,7 +314,9 @@ def sync_site_stream(app, site_config):
                     SharePoints.delete_file_by_sp_item_id(site_id, item_id)
                     stats["deleted"] += 1
             except Exception as e:
-                log.warning(f"Failed to process deletion for item {item.get('id', '?')}: {e}")
+                log.warning(
+                    f"Failed to process deletion for item {item.get('id', '?')}: {e}"
+                )
                 stats["errors"] += 1
 
         # Main loop: only actionable files (in-scope, supported type, not folders/deleted)
@@ -311,15 +324,18 @@ def sync_site_stream(app, site_config):
             item_id = item.get("id", "")
             item_name = item.get("name", "")
             action = "skipped"
-            _sync_progress[site_id] = {"current": idx, "total": total_files, "filename": item_name}
+            with _sync_progress_lock:
+                _sync_progress[site_id] = {
+                    "current": idx,
+                    "total": total_files,
+                    "filename": item_name,
+                }
             try:
                 item_path = SharePointGraphClient.get_item_path(item)
                 file_id = None
 
                 # Exclusion check
-                tracked = SharePoints.get_file_by_sp_item_id(
-                    site_id, item_id
-                )
+                tracked = SharePoints.get_file_by_sp_item_id(site_id, item_id)
                 if tracked and tracked.excluded:
                     stats["skipped"] += 1
                     yield {
@@ -336,7 +352,11 @@ def sync_site_stream(app, site_config):
 
                 # Check if file changed (via eTag)
                 item_etag = item.get("eTag", "")
-                if tracked and tracked.sp_etag == item_etag and tracked.sync_status == "synced":
+                if (
+                    tracked
+                    and tracked.sp_etag == item_etag
+                    and tracked.sync_status == "synced"
+                ):
                     # File unchanged — but still refresh permissions in filter mode
                     if site_config.sync_mode == "filter":
                         try:
@@ -465,9 +485,7 @@ def sync_site_stream(app, site_config):
                         allowed_users = perms.get("users", [])
                         allowed_groups = perms.get("groups", [])
                     except Exception as e:
-                        log.warning(
-                            f"Failed to get permissions for {item_name}: {e}"
-                        )
+                        log.warning(f"Failed to get permissions for {item_name}: {e}")
                         # In filter mode, never store a file without permissions —
                         # it would be readable by everyone.
                         SharePoints.upsert_file(
@@ -478,7 +496,9 @@ def sync_site_stream(app, site_config):
                                 "filename": item_name,
                                 "sp_item_path": item_path,
                                 "sp_etag": item_etag,
-                                "sp_last_modified": item.get("lastModifiedDateTime", ""),
+                                "sp_last_modified": item.get(
+                                    "lastModifiedDateTime", ""
+                                ),
                                 "sync_status": "error",
                                 "sync_error": f"Permission fetch failed: {str(e)[:400]}",
                             },
@@ -567,7 +587,8 @@ def sync_site_stream(app, site_config):
             },
         )
 
-        _sync_progress.pop(site_id, None)
+        with _sync_progress_lock:
+            _sync_progress.pop(site_id, None)
 
         yield {
             "type": "complete",
@@ -585,7 +606,8 @@ def sync_site_stream(app, site_config):
                 "sync_error": str(e)[:500],
             },
         )
-        _sync_progress.pop(site_id, None)
+        with _sync_progress_lock:
+            _sync_progress.pop(site_id, None)
 
         yield {
             "type": "error",
@@ -619,9 +641,7 @@ def retry_error_files(app, site_config) -> dict:
     if not error_files:
         return stats
 
-    log.info(
-        f"Retrying {len(error_files)} error files for '{site_config.site_name}'"
-    )
+    log.info(f"Retrying {len(error_files)} error files for '{site_config.site_name}'")
 
     for sp_file in error_files:
         stats["retried"] += 1
@@ -687,10 +707,7 @@ async def trigger_sync(
             raise ValueError(f"Site {site_id} not found")
     else:
         # Periodic/all-site sync — only sync enabled sites
-        sites = [
-            s for s in SharePoints.get_sites()
-            if getattr(s, "sync_enabled", True)
-        ]
+        sites = [s for s in SharePoints.get_sites() if getattr(s, "sync_enabled", True)]
 
     for site in sites:
         if clear_exclusions:
@@ -703,9 +720,7 @@ async def trigger_sync(
 
         try:
             stats = await asyncio.to_thread(sync_site, app, site)
-            results.append(
-                {"id": site.id, "name": site.site_name, "stats": stats}
-            )
+            results.append({"id": site.id, "name": site.site_name, "stats": stats})
         except Exception as e:
             results.append(
                 {
@@ -737,10 +752,7 @@ async def trigger_sync_stream(
             return
     else:
         # Periodic/all-site sync — only sync enabled sites
-        sites = [
-            s for s in SharePoints.get_sites()
-            if getattr(s, "sync_enabled", True)
-        ]
+        sites = [s for s in SharePoints.get_sites() if getattr(s, "sync_enabled", True)]
 
     for site in sites:
         if clear_exclusions:
@@ -757,12 +769,14 @@ async def trigger_sync_stream(
                 for event in sync_site_stream(app_ref, site_ref):
                     q.put_nowait(event)
             except Exception as e:
-                q.put_nowait({
-                    "type": "error",
-                    "site_id": site_ref.id,
-                    "site_name": site_ref.site_name or site_ref.site_id,
-                    "error": str(e)[:500],
-                })
+                q.put_nowait(
+                    {
+                        "type": "error",
+                        "site_id": site_ref.id,
+                        "site_name": site_ref.site_name or site_ref.site_id,
+                        "error": str(e)[:500],
+                    }
+                )
             finally:
                 q.put_nowait(None)  # sentinel
 

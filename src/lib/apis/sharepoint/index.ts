@@ -3,9 +3,119 @@ import { splitStream } from '$lib/utils';
 
 const SHAREPOINT_API_BASE = `${WEBUI_API_BASE_URL}/sharepoint`;
 
+// ---- Types ----
+
+export interface SharePointConfig {
+	ENABLE_SHAREPOINT_SYNC: boolean;
+	SHAREPOINT_TENANT_ID: string;
+	SHAREPOINT_CLIENT_ID: string;
+	SHAREPOINT_CLIENT_SECRET: string;
+	SHAREPOINT_SYNC_INTERVAL: number;
+}
+
+export interface SharePointSite {
+	id: string;
+	site_id: string;
+	drive_id: string;
+	site_url: string | null;
+	site_name: string | null;
+	drive_name: string | null;
+	selected_items: SharePointSelectedItem[] | null;
+	sync_all: boolean;
+	display_name: string | null;
+	sync_enabled: boolean;
+	kb_id: string | null;
+	kb_name: string | null;
+	sync_mode: string;
+	delta_link: string | null;
+	last_sync_at: number | null;
+	sync_status: string;
+	sync_error: string | null;
+	file_count: number;
+	error_count: number;
+	excluded_count: number;
+	created_at: number;
+	updated_at: number;
+}
+
+export interface SharePointFile {
+	id: string;
+	site_config_id: string;
+	sp_item_id: string;
+	owui_file_id: string | null;
+	filename: string | null;
+	sp_item_path: string | null;
+	sp_etag: string | null;
+	sp_last_modified: string | null;
+	allowed_users: string[] | null;
+	allowed_groups: string[] | null;
+	sync_status: string;
+	sync_error: string | null;
+	excluded: boolean;
+	created_at: number;
+	updated_at: number;
+}
+
+export interface SharePointDrive {
+	id: string;
+	name: string;
+	driveType: string;
+}
+
+export interface SharePointBrowserItem {
+	id: string;
+	name: string;
+	size: number;
+	isFolder: boolean;
+	childCount: number;
+	mimeType: string;
+	lastModifiedDateTime: string;
+}
+
+export interface SharePointSelectedItem {
+	type: string;
+	id: string;
+	path: string;
+	name: string;
+}
+
+export interface SharePointSyncEvent {
+	type: string;
+	site_id?: string;
+	site_name?: string;
+	total_items?: number;
+	current?: number;
+	total?: number;
+	filename?: string;
+	action?: string;
+	stats?: SharePointSyncStats;
+	error?: string;
+	page?: number;
+	items_found?: number;
+}
+
+export interface SharePointSyncStats {
+	added: number;
+	updated: number;
+	skipped: number;
+	deleted: number;
+	errors: number;
+}
+
+export interface SharePointSyncStatus {
+	sync_status: string;
+	progress: { current: number; total: number; filename: string } | null;
+}
+
+export interface SharePointResolvedSite {
+	site_id: string;
+	site_name: string;
+	web_url: string;
+}
+
 // ---- Config ----
 
-export const getSharePointConfig = async (token: string) => {
+export const getSharePointConfig = async (token: string): Promise<SharePointConfig> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/config`, {
@@ -26,11 +136,16 @@ export const getSharePointConfig = async (token: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
-export const updateSharePointConfig = async (token: string, config: Record<string, unknown>) => {
+export const updateSharePointConfig = async (
+	token: string,
+	config: Partial<SharePointConfig>
+): Promise<SharePointConfig> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/config`, {
@@ -52,13 +167,18 @@ export const updateSharePointConfig = async (token: string, config: Record<strin
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
 // ---- Browse ----
 
-export const resolveSharePointSite = async (token: string, url: string) => {
+export const resolveSharePointSite = async (
+	token: string,
+	url: string
+): Promise<SharePointResolvedSite> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/browse/resolve`, {
@@ -80,11 +200,16 @@ export const resolveSharePointSite = async (token: string, url: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
-export const listSharePointDrives = async (token: string, siteId: string) => {
+export const listSharePointDrives = async (
+	token: string,
+	siteId: string
+): Promise<SharePointDrive[]> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/browse/${encodeURIComponent(siteId)}/drives`, {
@@ -105,7 +230,9 @@ export const listSharePointDrives = async (token: string, siteId: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
@@ -113,7 +240,7 @@ export const listSharePointItems = async (
 	token: string,
 	driveId: string,
 	parentId?: string
-) => {
+): Promise<SharePointBrowserItem[]> => {
 	let error = null;
 	const params = parentId ? `?parent_id=${encodeURIComponent(parentId)}` : '';
 
@@ -138,13 +265,15 @@ export const listSharePointItems = async (
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
 // ---- Sites ----
 
-export const getSharePointSites = async (token: string) => {
+export const getSharePointSites = async (token: string): Promise<SharePointSite[]> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites`, {
@@ -165,11 +294,16 @@ export const getSharePointSites = async (token: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
-export const addSharePointSite = async (token: string, siteData: Record<string, unknown>) => {
+export const addSharePointSite = async (
+	token: string,
+	siteData: Record<string, unknown>
+): Promise<SharePointSite> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites`, {
@@ -191,7 +325,9 @@ export const addSharePointSite = async (token: string, siteData: Record<string, 
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
@@ -199,7 +335,7 @@ export const updateSharePointSite = async (
 	token: string,
 	siteId: string,
 	data: Record<string, unknown>
-) => {
+): Promise<SharePointSite> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites/${encodeURIComponent(siteId)}`, {
@@ -221,7 +357,9 @@ export const updateSharePointSite = async (
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
@@ -246,13 +384,18 @@ export const deleteSharePointSite = async (token: string, siteId: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
 // ---- Site Files ----
 
-export const getSharePointSiteFiles = async (token: string, siteId: string) => {
+export const getSharePointSiteFiles = async (
+	token: string,
+	siteId: string
+): Promise<SharePointFile[]> => {
 	let error = null;
 
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sites/${encodeURIComponent(siteId)}/files`, {
@@ -273,7 +416,9 @@ export const getSharePointSiteFiles = async (token: string, siteId: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
@@ -300,7 +445,9 @@ export const retrySharePointErrors = async (token: string, siteId: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
@@ -309,17 +456,14 @@ export const retrySharePointErrors = async (token: string, siteId: string) => {
 export const cancelSharePointSync = async (token: string, siteId: string) => {
 	let error = null;
 
-	const res = await fetch(
-		`${SHAREPOINT_API_BASE}/sync/${encodeURIComponent(siteId)}/cancel`,
-		{
-			method: 'POST',
-			headers: {
-				Accept: 'application/json',
-				'Content-Type': 'application/json',
-				authorization: `Bearer ${token}`
-			}
+	const res = await fetch(`${SHAREPOINT_API_BASE}/sync/${encodeURIComponent(siteId)}/cancel`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
 		}
-	)
+	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
 			return res.json();
@@ -330,7 +474,9 @@ export const cancelSharePointSync = async (token: string, siteId: string) => {
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
@@ -367,27 +513,26 @@ export const triggerSharePointSync = async (
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
 export const getSharePointSyncStatus = async (
 	token: string,
 	siteId: string
-): Promise<{ sync_status: string; progress: { current: number; total: number; filename: string } | null } | null> => {
+): Promise<SharePointSyncStatus | null> => {
 	let error = null;
 
-	const res = await fetch(
-		`${SHAREPOINT_API_BASE}/sync/${encodeURIComponent(siteId)}/status`,
-		{
-			method: 'GET',
-			headers: {
-				Accept: 'application/json',
-				'Content-Type': 'application/json',
-				authorization: `Bearer ${token}`
-			}
+	const res = await fetch(`${SHAREPOINT_API_BASE}/sync/${encodeURIComponent(siteId)}/status`, {
+		method: 'GET',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
 		}
-	)
+	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
 			return res.json();
@@ -398,7 +543,9 @@ export const getSharePointSyncStatus = async (
 			return null;
 		});
 
-	if (error) { throw error; }
+	if (error) {
+		throw error;
+	}
 	return res;
 };
 
@@ -407,9 +554,9 @@ export const triggerSharePointSyncStream = async (
 	siteId?: string,
 	force: boolean = false,
 	clearExclusions: boolean = false,
-	onEvent?: (event: Record<string, unknown>) => void,
+	onEvent?: (event: SharePointSyncEvent) => void,
 	signal?: AbortSignal
-) => {
+): Promise<SharePointSyncEvent | null> => {
 	const res = await fetch(`${SHAREPOINT_API_BASE}/sync/stream`, {
 		method: 'POST',
 		headers: {
@@ -430,12 +577,12 @@ export const triggerSharePointSyncStream = async (
 		throw err.detail || 'Sync stream failed';
 	}
 
-	const reader = res.body!
-		.pipeThrough(new TextDecoderStream())
+	const reader = res
+		.body!.pipeThrough(new TextDecoderStream())
 		.pipeThrough(splitStream('\n'))
 		.getReader();
 
-	let lastEvent: Record<string, unknown> | null = null;
+	let lastEvent: SharePointSyncEvent | null = null;
 
 	for (;;) {
 		const { value, done } = await reader.read();

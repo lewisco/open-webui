@@ -49,7 +49,8 @@ async def get_sharepoint_config(
         ENABLE_SHAREPOINT_SYNC=request.app.state.config.ENABLE_SHAREPOINT_SYNC,
         SHAREPOINT_TENANT_ID=request.app.state.config.SHAREPOINT_TENANT_ID,
         SHAREPOINT_CLIENT_ID=request.app.state.config.SHAREPOINT_CLIENT_ID,
-        SHAREPOINT_CLIENT_SECRET=request.app.state.config.SHAREPOINT_CLIENT_SECRET or "",
+        SHAREPOINT_CLIENT_SECRET=request.app.state.config.SHAREPOINT_CLIENT_SECRET
+        or "",
         SHAREPOINT_SYNC_INTERVAL=request.app.state.config.SHAREPOINT_SYNC_INTERVAL,
     )
 
@@ -180,9 +181,7 @@ async def list_sharepoint_drives(
     return [DriveResponse(**d) for d in drives]
 
 
-@router.get(
-    "/browse/drives/{drive_id}/items", response_model=list[DriveItemResponse]
-)
+@router.get("/browse/drives/{drive_id}/items", response_model=list[DriveItemResponse])
 async def list_sharepoint_items(
     request: Request,
     drive_id: str,
@@ -207,6 +206,7 @@ async def list_sharepoint_items(
 ############################
 # Sites
 ############################
+
 
 @router.get("/sites", response_model=list[SharePointSiteModel])
 async def get_sharepoint_sites(
@@ -233,7 +233,9 @@ async def add_sharepoint_site(
     db: Session = Depends(get_session),
 ):
     """Add a new SharePoint site configuration and create a linked KB."""
-    kb_name = form_data.kb_name or f"SharePoint: {form_data.site_name or form_data.site_id}"
+    kb_name = (
+        form_data.kb_name or f"SharePoint: {form_data.site_name or form_data.site_id}"
+    )
 
     # Create a Knowledge Base for this site
     kb = Knowledges.insert_new_knowledge(
@@ -248,14 +250,26 @@ async def add_sharepoint_site(
     if not kb:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ERROR_MESSAGES.DEFAULT("Failed to create Knowledge Base for SharePoint site."),
+            detail=ERROR_MESSAGES.DEFAULT(
+                "Failed to create Knowledge Base for SharePoint site."
+            ),
         )
 
-    site = SharePoints.insert_new_site(form_data, kb_id=kb.id, db=db)
+    try:
+        site = SharePoints.insert_new_site(form_data, kb_id=kb.id, db=db)
+    except Exception:
+        # Clean up the orphaned KB before re-raising
+        Knowledges.delete_knowledge_by_id(id=kb.id, db=db)
+        raise
+
     if not site:
+        # insert_new_site returned None — clean up the orphaned KB
+        Knowledges.delete_knowledge_by_id(id=kb.id, db=db)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ERROR_MESSAGES.DEFAULT("Failed to save SharePoint site configuration."),
+            detail=ERROR_MESSAGES.DEFAULT(
+                "Failed to save SharePoint site configuration."
+            ),
         )
 
     return site
@@ -278,18 +292,24 @@ async def delete_sharepoint_site(
 
     kb_id = site.kb_id
 
-    # 1. Clean up OWUI files and their vector entries
-    sp_files = SharePoints.get_files_by_site(id, limit=1000, db=db)
-    for sp_file in sp_files:
-        if sp_file.owui_file_id:
-            try:
-                VECTOR_DB_CLIENT.delete(
-                    collection_name=kb_id,
-                    filter={"file_id": sp_file.owui_file_id},
-                )
-            except Exception as e:
-                log.debug(f"Vector cleanup for {sp_file.owui_file_id}: {e}")
-            Files.delete_file_by_id(sp_file.owui_file_id)
+    # 1. Clean up OWUI files and their vector entries (paginated for large sites)
+    skip = 0
+    batch_size = 1000
+    while True:
+        sp_files = SharePoints.get_files_by_site(id, skip=skip, limit=batch_size, db=db)
+        if not sp_files:
+            break
+        for sp_file in sp_files:
+            if sp_file.owui_file_id:
+                try:
+                    VECTOR_DB_CLIENT.delete(
+                        collection_name=kb_id,
+                        filter={"file_id": sp_file.owui_file_id},
+                    )
+                except Exception as e:
+                    log.debug(f"Vector cleanup for {sp_file.owui_file_id}: {e}")
+                Files.delete_file_by_id(sp_file.owui_file_id)
+        skip += batch_size
 
     # 2. Delete the KB vector collection and metadata embedding
     if kb_id:
@@ -374,9 +394,7 @@ async def update_sharepoint_site(
 ############################
 
 
-@router.get(
-    "/sites/{site_id}/files", response_model=list[SharePointFileModel]
-)
+@router.get("/sites/{site_id}/files", response_model=list[SharePointFileModel])
 async def get_sharepoint_site_files(
     request: Request,
     site_id: str,

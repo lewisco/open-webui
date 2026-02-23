@@ -247,7 +247,7 @@ class SharePointTable:
                 site = db.query(SharePointSite).filter_by(id=id).first()
                 return SharePointSiteModel.model_validate(site) if site else None
         except Exception as e:
-            log.debug(f"get_site_by_id error: {e}")
+            log.warning(f"get_site_by_id error: {e}")
             return None
 
     def update_site(
@@ -399,7 +399,7 @@ class SharePointTable:
                 )
                 return SharePointFileModel.model_validate(f) if f else None
         except Exception as e:
-            log.debug(f"get_file_by_sp_item_id error: {e}")
+            log.warning(f"get_file_by_sp_item_id error: {e}")
             return None
 
     def get_file_by_owui_id(
@@ -414,7 +414,7 @@ class SharePointTable:
                 )
                 return SharePointFileModel.model_validate(f) if f else None
         except Exception as e:
-            log.debug(f"get_file_by_owui_id error: {e}")
+            log.warning(f"get_file_by_owui_id error: {e}")
             return None
 
     def get_files_by_owui_ids(
@@ -432,7 +432,7 @@ class SharePointTable:
                 )
                 return [SharePointFileModel.model_validate(f) for f in files]
         except Exception as e:
-            log.debug(f"get_files_by_owui_ids error: {e}")
+            log.warning(f"get_files_by_owui_ids error: {e}")
             return []
 
     def get_sites_by_ids(
@@ -450,7 +450,7 @@ class SharePointTable:
                 )
                 return [SharePointSiteModel.model_validate(s) for s in sites]
         except Exception as e:
-            log.debug(f"get_sites_by_ids error: {e}")
+            log.warning(f"get_sites_by_ids error: {e}")
             return []
 
     def get_excluded_files_by_site(
@@ -464,9 +464,7 @@ class SharePointTable:
             )
             return [SharePointFileModel.model_validate(f) for f in files]
 
-    def mark_file_excluded(
-        self, file_id: str, db: Optional[Session] = None
-    ) -> bool:
+    def mark_file_excluded(self, file_id: str, db: Optional[Session] = None) -> bool:
         try:
             with get_db_context(db) as db:
                 db.query(SharePointFile).filter_by(id=file_id).update(
@@ -475,12 +473,10 @@ class SharePointTable:
                 db.commit()
                 return True
         except Exception as e:
-            log.debug(f"mark_file_excluded error: {e}")
+            log.warning(f"mark_file_excluded error: {e}")
             return False
 
-    def mark_file_included(
-        self, file_id: str, db: Optional[Session] = None
-    ) -> bool:
+    def mark_file_included(self, file_id: str, db: Optional[Session] = None) -> bool:
         try:
             with get_db_context(db) as db:
                 db.query(SharePointFile).filter_by(id=file_id).update(
@@ -489,7 +485,7 @@ class SharePointTable:
                 db.commit()
                 return True
         except Exception as e:
-            log.debug(f"mark_file_included error: {e}")
+            log.warning(f"mark_file_included error: {e}")
             return False
 
     def clear_exclusions_by_site(
@@ -503,7 +499,7 @@ class SharePointTable:
                 db.commit()
                 return True
         except Exception as e:
-            log.debug(f"clear_exclusions_by_site error: {e}")
+            log.warning(f"clear_exclusions_by_site error: {e}")
             return False
 
     def get_file_counts_by_site(
@@ -533,12 +529,10 @@ class SharePointTable:
                     "excluded_count": result.excluded_count,
                 }
         except Exception as e:
-            log.debug(f"get_file_counts_by_site error: {e}")
+            log.warning(f"get_file_counts_by_site error: {e}")
             return {"file_count": 0, "error_count": 0, "excluded_count": 0}
 
-    def get_all_file_counts(
-        self, db: Optional[Session] = None
-    ) -> dict[str, dict]:
+    def get_all_file_counts(self, db: Optional[Session] = None) -> dict[str, dict]:
         """Return file counts grouped by site_config_id in a single query."""
         try:
             with get_db_context(db) as db:
@@ -567,7 +561,7 @@ class SharePointTable:
                     for r in results
                 }
         except Exception as e:
-            log.debug(f"get_all_file_counts error: {e}")
+            log.warning(f"get_all_file_counts error: {e}")
             return {}
 
     def delete_file_by_sp_item_id(
@@ -581,7 +575,7 @@ class SharePointTable:
                 db.commit()
                 return True
         except Exception as e:
-            log.debug(f"delete_file_by_sp_item_id error: {e}")
+            log.warning(f"delete_file_by_sp_item_id error: {e}")
             return False
 
     def get_problem_files_by_site(

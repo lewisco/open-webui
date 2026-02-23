@@ -236,7 +236,11 @@
 					: {}
 		});
 
-		await sharePointRef?.submit();
+		try {
+			await sharePointRef?.submit();
+		} catch (e: any) {
+			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to save SharePoint config'));
+		}
 
 		dispatch('save');
 	};
@@ -1466,7 +1470,7 @@
 						</div>
 					</div>
 
-				<SharePoint bind:this={sharePointRef} />
+					<SharePoint bind:this={sharePointRef} />
 				</div>
 
 				<div class="mb-3">
