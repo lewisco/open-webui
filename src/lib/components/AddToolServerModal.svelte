@@ -1065,7 +1065,11 @@
 	</div>
 </Modal>
 
-<AccessControlModal bind:show={showAccessControlModal} bind:accessGrants />
+<AccessControlModal
+	bind:show={showAccessControlModal}
+	bind:accessGrants
+	accessRoles={['read', 'write']}
+/>
 
 <ConfirmDialog
 	bind:show={showDeleteConfirmDialog}

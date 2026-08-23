@@ -516,6 +516,34 @@ export const verifyToolServerConnection = async (token: string, connection: obje
 	return res;
 };
 
+export const refreshToolServerConnection = async (token: string, id?: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/configs/tool_servers/refresh`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(id !== undefined && id !== null ? { id } : {})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 type RegisterOAuthClientForm = {
 	url: string;
 	client_id: string;

@@ -1182,6 +1182,59 @@ async def set_tool_servers(request: Request):
     return request.app.state.TOOL_SERVERS
 
 
+async def refresh_tool_servers(request: Request, connection_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    """Re-fetch OpenAPI tool server specs and update the shared cache.
+
+    Unlike ``set_tool_servers`` (which rebuilds the whole cache from scratch and
+    silently keeps the previous cache on failure), this merges fresh data into
+    the existing cache so a failed refresh never discards previously-known
+    servers. When Redis is configured the merged result is written back so every
+    replica picks it up on its next read.
+
+    - ``connection_ids=None`` refreshes every enabled OpenAPI connection.
+    - An explicit list refreshes only those connections (matched on their
+      configured ``info.id``, falling back to the connection index as a string).
+
+    MCP servers are skipped: their tools are discovered per chat request rather
+    than cached, so there is nothing to refresh.
+
+    Returns the merged tool server list.
+    """
+    connections = await Config.get('tool_server.connections', []) or []
+
+    def connection_id(idx: int, connection: dict) -> str:
+        server_id = (connection.get('info') or {}).get('id')
+        return str(server_id if server_id is not None else idx)
+
+    selected = [
+        connection
+        for idx, connection in enumerate(connections)
+        if connection.get('type', 'openapi') == 'openapi'
+        and (connection_ids is None or connection_id(idx, connection) in connection_ids)
+    ]
+
+    refreshed = await get_tool_servers_data(selected) if selected else []
+
+    # Merge into the existing cache (if any) keyed by server id so a failed or
+    # partial refresh leaves other servers untouched.
+    existing = list(getattr(request.app.state, 'TOOL_SERVERS', None) or [])
+    refreshed_by_id = {server['id']: server for server in refreshed}
+    merged = [refreshed_by_id.pop(server.get('id'), server) for server in existing]
+    # Any refreshed server not already in the cache (e.g. cold cache) is appended.
+    merged.extend(refreshed_by_id.values())
+
+    request.app.state.TOOL_SERVERS = merged
+
+    try:
+        redis = getattr(request.app.state, 'redis', None)
+        if redis is not None:
+            await redis.set(f'{REDIS_KEY_PREFIX}:tool_servers', json.dumps(request.app.state.TOOL_SERVERS))
+    except Exception as e:
+        log.error(f'Error caching tool_servers to Redis: {e}')
+
+    return request.app.state.TOOL_SERVERS
+
+
 async def get_tool_servers(request: Request):
     try:
         tool_servers = None

@@ -30,6 +30,7 @@
 	import {
 		getToolServerConnections,
 		setToolServerConnections,
+		refreshToolServerConnection,
 		getTerminalServerConnections,
 		setTerminalServerConnections
 	} from '$lib/apis/configs';
@@ -69,6 +70,27 @@
 
 		if (res) {
 			toast.success($i18n.t('Connections saved successfully'));
+		}
+	};
+
+	const connectionId = (connection: ToolServerConnection, idx: number): string =>
+		String(connection?.info?.id ?? idx);
+
+	const refreshHandler = async (connection: ToolServerConnection, idx: number) => {
+		const res = await refreshToolServerConnection(
+			localStorage.token,
+			connectionId(connection, idx)
+		).catch((err) => {
+			toast.error($i18n.t('Failed to refresh tool server'));
+			return null;
+		});
+
+		if (res?.status) {
+			if (res.refreshed) {
+				toast.success($i18n.t('Tool server refreshed'));
+			} else {
+				toast.warning($i18n.t('Tool server unreachable; kept the previously cached tools'));
+			}
 		}
 	};
 
@@ -192,6 +214,7 @@
 						{#each servers ?? [] as server, idx}
 							<Connection
 								bind:connection={server}
+								onRefresh={() => refreshHandler(server, idx)}
 								onSubmit={() => {
 									updateHandler();
 								}}

@@ -5,13 +5,15 @@ import logging
 from typing import Optional
 
 import aiohttp
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from mcp.shared.auth import OAuthMetadata
 from open_webui.config import BannerModel
+from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import AIOHTTP_CLIENT_SESSION_SSL, AIOHTTP_CLIENT_TIMEOUT
 from open_webui.events import EVENTS, publish_event
 from open_webui.models.config import Config
 from open_webui.models.oauth_sessions import OAuthSessions
+from open_webui.utils.access_control import has_connection_access
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.headers import get_custom_headers
 from open_webui.utils.mcp.client import MCPClient
@@ -30,6 +32,7 @@ from open_webui.utils.tools import (
     bearer_auth_header,
     get_tool_server_data,
     get_tool_server_url,
+    refresh_tool_servers,
     set_terminal_servers,
     set_tool_servers,
 )
@@ -291,6 +294,73 @@ async def set_tool_servers_config(
         data={'count': len(connections), 'types': [connection.get('type', 'openapi') for connection in connections]},
     )
     return {'TOOL_SERVER_CONNECTIONS': connections}
+
+
+class ToolServerRefreshForm(BaseModel):
+    # Server id (``info.id``, falling back to the connection index as a string).
+    # Omit to refresh every enabled OpenAPI connection (admin only).
+    id: str | None = None
+
+
+@router.post('/tool_servers/refresh')
+async def refresh_tool_servers_config(
+    request: Request,
+    form_data: ToolServerRefreshForm,
+    user=Depends(get_verified_user),
+):
+    """
+    Re-fetch the OpenAPI spec for one (or all) global tool server connections and
+    update the shared cache, so newly added endpoints become available without a
+    restart or a full config re-save.
+
+    Requires admin, or a ``write`` access grant on the specific connection.
+    MCP connections are ignored: their tools are discovered per chat request
+    rather than cached, so there is nothing to refresh.
+    """
+    connections = await Config.get('tool_server.connections', []) or []
+
+    def connection_id(idx: int, connection: dict) -> str:
+        server_id = (connection.get('info') or {}).get('id')
+        return str(server_id if server_id is not None else idx)
+
+    target = None
+    if form_data.id is not None:
+        for idx, connection in enumerate(connections):
+            if connection_id(idx, connection) == form_data.id:
+                target = connection
+                break
+        if target is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+
+    is_admin = user.role == 'admin'
+    if form_data.id is None:
+        # Refreshing everything is an admin-only operation.
+        if not is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    elif not is_admin:
+        # Non-admins need a write grant on the specific connection.
+        if not await has_connection_access(user, target, permission='write'):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+
+    tool_servers = await refresh_tool_servers(request, [form_data.id] if form_data.id is not None else None)
+
+    await publish_event(
+        request,
+        EVENTS.CONFIG_TOOL_SERVERS_UPDATED,
+        actor=user,
+        subject_id='tool_server.connections',
+        subject_type='config',
+        data={'refresh': True, 'id': form_data.id},
+    )
+
+    cached_ids = [server.get('id') for server in tool_servers]
+    return {
+        'status': True,
+        # For a targeted refresh, whether the spec was actually re-fetched (False
+        # when the server was unreachable; the previous cache is kept in that case).
+        'refreshed': form_data.id is None or form_data.id in cached_ids,
+        'tool_servers': cached_ids,
+    }
 
 
 class TerminalServerConnection(BaseModel):

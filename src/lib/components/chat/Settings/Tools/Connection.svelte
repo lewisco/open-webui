@@ -8,14 +8,27 @@
 	import Cog6 from '$lib/components/icons/Cog6.svelte';
 	import AddToolServerModal from '$lib/components/AddToolServerModal.svelte';
 	import WrenchAlt from '$lib/components/icons/WrenchAlt.svelte';
+	import ArrowPath from '$lib/components/icons/ArrowPath.svelte';
 
 	export let onDelete = () => {};
 	export let onSubmit = () => {};
+	export let onRefresh: null | (() => void) = null;
 
 	export let connection = null;
 	export let direct = false;
 
 	let showConfigModal = false;
+	let refreshing = false;
+
+	const refreshHandler = async () => {
+		if (!onRefresh || refreshing) return;
+		refreshing = true;
+		try {
+			await onRefresh();
+		} finally {
+			refreshing = false;
+		}
+	};
 </script>
 
 <AddToolServerModal
@@ -60,6 +73,22 @@
 	</Tooltip>
 
 	<div class="flex shrink-0 items-center gap-1">
+		{#if onRefresh && (connection?.type ?? 'openapi') === 'openapi'}
+			<Tooltip content={$i18n.t('Refresh tools')} className="self-start">
+				<button
+					class="flex size-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-50 dark:text-gray-600 dark:hover:text-gray-300"
+					on:click={refreshHandler}
+					disabled={refreshing}
+					type="button"
+					aria-label={$i18n.t('Refresh tools')}
+				>
+					<div class:animate-spin={refreshing}>
+						<ArrowPath className="size-4" strokeWidth="2" />
+					</div>
+				</button>
+			</Tooltip>
+		{/if}
+
 		<Tooltip content={$i18n.t('Configure')} className="self-start">
 			<button
 				class="flex size-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-600 dark:hover:text-gray-300"
