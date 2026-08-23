@@ -35,6 +35,7 @@ from open_webui.utils.tools import (
     refresh_tool_servers,
     set_terminal_servers,
     set_tool_servers,
+    tool_server_cache_lock,
 )
 from pydantic import BaseModel, ConfigDict
 
@@ -103,7 +104,13 @@ class ImportConfigForm(BaseModel):
 
 @router.post('/import', response_model=dict)
 async def import_config(request: Request, form_data: ImportConfigForm, user=Depends(get_admin_user)):
-    await Config.upsert(form_data.config)
+    tool_server_connections = form_data.config.get('tool_server.connections')
+    if tool_server_connections is not None:
+        async with tool_server_cache_lock(request):
+            await Config.upsert(form_data.config)
+            await set_tool_servers(request, tool_server_connections or [], acquire_lock=False)
+    else:
+        await Config.upsert(form_data.config)
     await publish_event(
         request,
         EVENTS.CONFIG_IMPORTED,
@@ -245,6 +252,15 @@ async def set_tool_servers_config(
     form_data: ToolServersConfigForm,
     user=Depends(get_admin_user),
 ):
+    connections = [connection.model_dump() for connection in form_data.TOOL_SERVER_CONNECTIONS]
+    connection_ids = [
+        (connection.get('info') or {}).get('id')
+        for connection in connections
+        if (connection.get('info') or {}).get('id')
+    ]
+    if len(connection_ids) != len(set(connection_ids)):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Tool server IDs must be unique.')
+
     existing_connections = await Config.get('tool_server.connections', []) or []
     for connection in existing_connections:
         server_type = connection.get('type', 'openapi')
@@ -261,10 +277,9 @@ async def set_tool_servers_config(
                 pass
 
     # Set new tool server connections
-    connections = [connection.model_dump() for connection in form_data.TOOL_SERVER_CONNECTIONS]
-    await Config.upsert({'tool_server.connections': connections})
-
-    await set_tool_servers(request)
+    async with tool_server_cache_lock(request):
+        await Config.upsert({'tool_server.connections': connections})
+        await set_tool_servers(request, connections, acquire_lock=False)
 
     for connection in connections:
         server_type = connection.get('type', 'openapi')
@@ -314,52 +329,90 @@ async def refresh_tool_servers_config(
     restart or a full config re-save.
 
     Requires admin, or a ``write`` access grant on the specific connection.
-    MCP connections are ignored: their tools are discovered per chat request
+    MCP connections are rejected: their tools are discovered per chat request
     rather than cached, so there is nothing to refresh.
     """
-    connections = await Config.get('tool_server.connections', []) or []
+    try:
+        async with tool_server_cache_lock(request):
+            connections = await Config.get('tool_server.connections', []) or []
 
-    def connection_id(idx: int, connection: dict) -> str:
-        server_id = (connection.get('info') or {}).get('id')
-        return str(server_id if server_id is not None else idx)
+            def connection_id(idx: int, connection: dict) -> str:
+                server_id = (connection.get('info') or {}).get('id')
+                return str(server_id if server_id is not None else idx)
 
-    target = None
+            target = None
+            if form_data.id is not None:
+                matches = [
+                    connection
+                    for idx, connection in enumerate(connections)
+                    if connection_id(idx, connection) == form_data.id
+                ]
+                if len(matches) != 1:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+                target = matches[0]
+
+            is_admin = user.role == 'admin'
+            if form_data.id is None:
+                if not is_admin:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+                    )
+            elif not is_admin and not await has_connection_access(user, target, permission='write'):
+                # Do not reveal whether an inaccessible connection ID exists.
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+
+            if target is not None:
+                if target.get('type', 'openapi') != 'openapi':
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail='MCP tool servers discover tools on each use and do not require refresh.',
+                    )
+                if not (target.get('config') or {}).get('enable'):
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Tool server is disabled.')
+
+            requested_ids = {
+                connection_id(idx, connection)
+                for idx, connection in enumerate(connections)
+                if connection.get('type', 'openapi') == 'openapi' and (connection.get('config') or {}).get('enable')
+            }
+            if form_data.id is not None:
+                requested_ids = {form_data.id}
+
+            _, refreshed_ids = await refresh_tool_servers(
+                request,
+                [form_data.id] if form_data.id is not None else None,
+                connections,
+                acquire_lock=False,
+            )
+    except TimeoutError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)) from e
+
     if form_data.id is not None:
-        for idx, connection in enumerate(connections):
-            if connection_id(idx, connection) == form_data.id:
-                target = connection
-                break
-        if target is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+        refreshed = form_data.id in refreshed_ids
+        await publish_event(
+            request,
+            EVENTS.TOOL_SERVER_REFRESHED,
+            actor=user,
+            subject_id=form_data.id,
+            subject_type='tool_server',
+            data={'success': refreshed},
+        )
+        return {'status': refreshed, 'refreshed': refreshed, 'id': form_data.id}
 
-    is_admin = user.role == 'admin'
-    if form_data.id is None:
-        # Refreshing everything is an admin-only operation.
-        if not is_admin:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
-    elif not is_admin:
-        # Non-admins need a write grant on the specific connection.
-        if not await has_connection_access(user, target, permission='write'):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
-
-    tool_servers = await refresh_tool_servers(request, [form_data.id] if form_data.id is not None else None)
-
+    failed_ids = requested_ids - refreshed_ids
     await publish_event(
         request,
-        EVENTS.CONFIG_TOOL_SERVERS_UPDATED,
+        EVENTS.TOOL_SERVER_REFRESHED,
         actor=user,
-        subject_id='tool_server.connections',
-        subject_type='config',
-        data={'refresh': True, 'id': form_data.id},
+        subject_id='all',
+        subject_type='tool_server',
+        data={'success': not failed_ids, 'refreshed': sorted(refreshed_ids), 'failed': sorted(failed_ids)},
     )
-
-    cached_ids = [server.get('id') for server in tool_servers]
     return {
-        'status': True,
-        # For a targeted refresh, whether the spec was actually re-fetched (False
-        # when the server was unreachable; the previous cache is kept in that case).
-        'refreshed': form_data.id is None or form_data.id in cached_ids,
-        'tool_servers': cached_ids,
+        'status': not failed_ids,
+        'refreshed': sorted(refreshed_ids),
+        'failed': sorted(failed_ids),
     }
 
 

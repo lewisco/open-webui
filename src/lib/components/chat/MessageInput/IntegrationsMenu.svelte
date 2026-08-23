@@ -262,7 +262,7 @@
 		refreshingToolId = toolId;
 		try {
 			const res = await refreshToolServerConnection(localStorage.token, serverId);
-			if (res?.status) {
+			if (res) {
 				if (res.refreshed) {
 					toast.success($i18n.t('Tool server refreshed'));
 					_tools.set(await getTools(localStorage.token));

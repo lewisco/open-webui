@@ -85,7 +85,7 @@
 			return null;
 		});
 
-		if (res?.status) {
+		if (res) {
 			if (res.refreshed) {
 				toast.success($i18n.t('Tool server refreshed'));
 			} else {
