@@ -13,7 +13,7 @@
 		terminalServers
 	} from '$lib/stores';
 
-	import { initiateOAuthRedirect } from '$lib/apis/configs';
+	import { initiateOAuthRedirect, refreshToolServerConnection } from '$lib/apis/configs';
 	import { deleteOAuthSession } from '$lib/apis/auths';
 	import { getTools } from '$lib/apis/tools';
 	import { getSkills } from '$lib/apis/skills';
@@ -35,6 +35,7 @@
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import LinkSlash from '$lib/components/icons/LinkSlash.svelte';
+	import ArrowPath from '$lib/components/icons/ArrowPath.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -62,6 +63,7 @@
 
 	let show = false;
 	let tab = '';
+	let refreshingToolId: string | null = null;
 
 	let tools = null;
 	let skills = null;
@@ -126,6 +128,28 @@
 		}
 
 		selectedSkillIds = selectedSkillIds.filter((id) => Object.keys(skills ?? {}).includes(id));
+	};
+	const refreshToolServer = async (toolId: string) => {
+		if (!toolId.startsWith('server:') || refreshingToolId) return;
+
+		const serverId = toolId.slice('server:'.length);
+		refreshingToolId = toolId;
+		try {
+			const res = await refreshToolServerConnection(localStorage.token, serverId);
+			if (res?.status) {
+				if (res.refreshed) {
+					toast.success($i18n.t('Tool server refreshed'));
+					_tools.set(await getTools(localStorage.token));
+					await init();
+				} else {
+					toast.warning($i18n.t('Tool server unreachable; kept the previously cached tools'));
+				}
+			}
+		} catch (err) {
+			toast.error($i18n.t('Failed to refresh tool server'));
+		} finally {
+			refreshingToolId = null;
+		}
 	};
 </script>
 
@@ -485,6 +509,28 @@
 											}}
 										>
 											<Knobs />
+										</button>
+									</Tooltip>
+								</div>
+							{/if}
+
+							{#if tools[toolId]?.can_refresh && !toolId.startsWith('server:mcp:')}
+								<div class=" shrink-0">
+									<Tooltip content={$i18n.t('Refresh tools')}>
+										<button
+											class="self-center w-fit text-sm text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition rounded-full disabled:opacity-50"
+											type="button"
+											disabled={refreshingToolId !== null}
+											aria-label={$i18n.t('Refresh tools')}
+											on:click={async (e) => {
+												e.stopPropagation();
+												e.preventDefault();
+												await refreshToolServer(toolId);
+											}}
+										>
+											<div class:animate-spin={refreshingToolId === toolId}>
+												<ArrowPath className="size-3.5" />
+											</div>
 										</button>
 									</Tooltip>
 								</div>

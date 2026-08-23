@@ -28,6 +28,7 @@ from open_webui.models.tools import (
 from open_webui.utils.access_control import (
     filter_allowed_access_grants,
     has_access,
+    has_connection_access,
     has_permission,
 )
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -106,6 +107,7 @@ async def get_tools(
 
         server_id = f'server:{server.get("id")}'
         server_access_grants[server_id] = server_config.get('access_grants', [])
+        can_refresh = await has_connection_access(user, connection, permission='write')
 
         tools.append(
             ToolUserResponse(
@@ -118,6 +120,9 @@ async def get_tools(
                     },
                     'updated_at': int(time.time()),
                     'created_at': int(time.time()),
+                    # Lets writable global OpenAPI connections expose a refresh
+                    # action from the chat integrations menu.
+                    'can_refresh': can_refresh,
                 }
             )
         )
