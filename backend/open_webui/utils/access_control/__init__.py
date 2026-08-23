@@ -149,6 +149,7 @@ async def has_connection_access(
     user: UserModel,
     connection: dict,
     user_group_ids: set[str] | None = None,
+    permission: str = 'read',
 ) -> bool:
     """
     Check if a user can access a server connection (tool server, terminal, etc.)
@@ -157,6 +158,10 @@ async def has_connection_access(
     - Admin with BYPASS_ADMIN_ACCESS_CONTROL → always allowed
     - Missing, None, or empty access_grants → private, admin-only
     - access_grants has entries → delegates to ``has_access``
+
+    ``permission`` defaults to ``'read'`` (use the connection). Passing
+    ``'write'`` checks whether the user may manage the connection — e.g.
+    refresh/re-fetch a tool server's spec — without being an admin.
     """
     from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
 
@@ -173,7 +178,7 @@ async def has_connection_access(
     if user_group_ids is None:
         user_group_ids = {group.id for group in await Groups.get_groups_by_member_id(user.id)}
 
-    return await has_access(user.id, 'read', access_grants, user_group_ids)
+    return await has_access(user.id, permission, access_grants, user_group_ids)
 
 
 def migrate_access_control(data: dict, ac_key: str = 'access_control', grants_key: str = 'access_grants') -> None:
