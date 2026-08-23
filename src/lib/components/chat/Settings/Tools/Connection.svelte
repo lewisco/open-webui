@@ -73,7 +73,7 @@
 	</Tooltip>
 
 	<div class="flex shrink-0 items-center gap-1">
-		{#if onRefresh && (connection?.type ?? 'openapi') === 'openapi'}
+		{#if onRefresh && (connection?.type ?? 'openapi') === 'openapi' && (connection?.config?.enable ?? true)}
 			<Tooltip content={$i18n.t('Refresh tools')} className="self-start">
 				<button
 					class="flex size-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-50 dark:text-gray-600 dark:hover:text-gray-300"

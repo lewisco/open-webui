@@ -39,7 +39,7 @@ from open_webui.utils.plugin import (
     replace_imports,
     resolve_valves_schema_options,
 )
-from open_webui.utils.tools import get_tool_servers, get_tool_specs
+from open_webui.utils.tools import get_tool_server_connection_key, get_tool_servers, get_tool_specs
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,6 +93,11 @@ async def get_tools(
 
     # OpenAPI Tool Servers
     server_access_grants = {}
+    user_group_ids = (
+        set()
+        if user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
+        else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
+    )
     for server in await get_tool_servers(request):
         server_idx = server.get('idx', 0)
         connections = await Config.get('tool_server.connections', [])
@@ -103,11 +108,16 @@ async def get_tools(
             )
             continue
         connection = connections[server_idx]
+        if server.get('connection_key') != get_tool_server_connection_key(server_idx, connection):
+            log.warning(f'Stale tool server cache entry for {server.get("id")}, skipping')
+            continue
         server_config = connection.get('config', {})
 
         server_id = f'server:{server.get("id")}'
         server_access_grants[server_id] = server_config.get('access_grants', [])
-        can_refresh = await has_connection_access(user, connection, permission='write')
+        can_refresh = user.role == 'admin' or await has_connection_access(
+            user, connection, user_group_ids, permission='write'
+        )
 
         tools.append(
             ToolUserResponse(
@@ -174,7 +184,6 @@ async def get_tools(
         # Admin can see all tools
         return tools
     else:
-        user_group_ids = {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
         filtered_tools = []
         for tool in tools:
             if tool.user_id == user.id:

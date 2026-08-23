@@ -8,6 +8,8 @@ import json
 import logging
 import os
 import re
+import uuid
+from contextlib import asynccontextmanager
 from functools import cache, partial, update_wrapper
 from typing import (
     Any,
@@ -404,6 +406,12 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                         )
                         continue
                     tool_server_connection = connections[tool_server_idx]
+
+                    if tool_server_data.get('connection_key') != get_tool_server_connection_key(
+                        tool_server_idx, tool_server_connection
+                    ):
+                        log.warning(f'Stale tool server cache entry for {server_id}, skipping')
+                        continue
 
                     # Check access control for tool server
                     if not await has_connection_access(user, tool_server_connection, user_group_ids):
@@ -1131,9 +1139,85 @@ def convert_openapi_to_tool_payload(openapi_spec):
     return tool_payload
 
 
-async def set_tool_servers(request: Request):
+_TOOL_SERVERS_LOCAL_CACHE_LOCK = asyncio.Lock()
+
+
+@asynccontextmanager
+async def tool_server_cache_lock(request: Request):
+    """Serialize tool-server cache writers across workers and replicas."""
+    redis = getattr(request.app.state, 'redis', None)
+    if redis is None:
+        async with _TOOL_SERVERS_LOCAL_CACHE_LOCK:
+            yield None
+        return
+
+    lock_key = f'{REDIS_KEY_PREFIX}:tool_servers:cache_lock'
+    lock_id = str(uuid.uuid4())
+    lock_acquired = False
+    renew_task = None
+
+    async def renew_lock():
+        while True:
+            await asyncio.sleep(20)
+            try:
+                renewed = await redis.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) end return 0",
+                    1,
+                    lock_key,
+                    lock_id,
+                    60,
+                )
+            except Exception as e:
+                log.error(f'Failed to renew tool server cache lock: {e}')
+                return
+            if not renewed:
+                log.error('Lost tool server cache lock while renewing')
+                return
+
     try:
-        request.app.state.TOOL_SERVERS = await get_tool_servers_data(await Config.get('tool_server.connections', []))
+        for _ in range(300):
+            if await redis.set(lock_key, lock_id, nx=True, ex=60):
+                lock_acquired = True
+                break
+            await asyncio.sleep(0.1)
+
+        if not lock_acquired:
+            raise TimeoutError('Timed out waiting for the tool server cache lock')
+
+        renew_task = asyncio.create_task(renew_lock())
+        yield redis
+    finally:
+        if renew_task is not None:
+            renew_task.cancel()
+            try:
+                await renew_task
+            except asyncio.CancelledError:
+                pass
+        if lock_acquired:
+            try:
+                await redis.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+                    1,
+                    lock_key,
+                    lock_id,
+                )
+            except Exception as e:
+                log.warning(f'Failed to release tool server cache lock: {e}')
+
+
+async def set_tool_servers(
+    request: Request,
+    connections: list[dict[str, Any]] | None = None,
+    acquire_lock: bool = True,
+):
+    if acquire_lock:
+        async with tool_server_cache_lock(request):
+            return await set_tool_servers(request, connections, acquire_lock=False)
+
+    try:
+        if connections is None:
+            connections = await Config.get('tool_server.connections', [])
+        request.app.state.TOOL_SERVERS = await get_tool_servers_data(connections or [])
     except Exception as e:
         log.error(f'Error fetching tool server data: {e}')
         request.app.state.TOOL_SERVERS = getattr(request.app.state, 'TOOL_SERVERS', None) or []
@@ -1149,7 +1233,12 @@ async def set_tool_servers(request: Request):
     return request.app.state.TOOL_SERVERS
 
 
-async def refresh_tool_servers(request: Request, connection_ids: list[str] | None = None) -> list[dict[str, Any]]:
+async def refresh_tool_servers(
+    request: Request,
+    connection_ids: list[str] | None = None,
+    connections: list[dict[str, Any]] | None = None,
+    acquire_lock: bool = True,
+) -> tuple[list[dict[str, Any]], set[str]]:
     """Re-fetch OpenAPI tool server specs and update the shared cache.
 
     Unlike ``set_tool_servers`` (which rebuilds the whole cache from scratch and
@@ -1165,41 +1254,57 @@ async def refresh_tool_servers(request: Request, connection_ids: list[str] | Non
     MCP servers are skipped: their tools are discovered per chat request rather
     than cached, so there is nothing to refresh.
 
-    Returns the merged tool server list.
+    Returns the merged tool server list and the IDs successfully refreshed.
     """
-    connections = await Config.get('tool_server.connections', []) or []
+    if acquire_lock:
+        async with tool_server_cache_lock(request):
+            return await refresh_tool_servers(
+                request,
+                connection_ids,
+                connections,
+                acquire_lock=False,
+            )
+
+    if connections is None:
+        connections = await Config.get('tool_server.connections', []) or []
 
     def connection_id(idx: int, connection: dict) -> str:
         server_id = (connection.get('info') or {}).get('id')
         return str(server_id if server_id is not None else idx)
 
+    # Keep placeholders for non-target connections so get_tool_servers_data()
+    # preserves each connection's original index. Runtime authorization and
+    # credentials are resolved by that index.
     selected = [
         connection
-        for idx, connection in enumerate(connections)
         if connection.get('type', 'openapi') == 'openapi'
         and (connection_ids is None or connection_id(idx, connection) in connection_ids)
+        else {}
+        for idx, connection in enumerate(connections)
     ]
 
-    refreshed = await get_tool_servers_data(selected) if selected else []
+    refreshed = await get_tool_servers_data(selected)
+    refreshed_ids = {server['id'] for server in refreshed}
 
-    # Merge into the existing cache (if any) keyed by server id so a failed or
-    # partial refresh leaves other servers untouched.
-    existing = list(getattr(request.app.state, 'TOOL_SERVERS', None) or [])
-    refreshed_by_id = {server['id']: server for server in refreshed}
-    merged = [refreshed_by_id.pop(server.get('id'), server) for server in existing]
-    # Any refreshed server not already in the cache (e.g. cold cache) is appended.
-    merged.extend(refreshed_by_id.values())
+    def merge(existing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        refreshed_by_id = {server['id']: server for server in refreshed}
+        merged = [refreshed_by_id.pop(server.get('id'), server) for server in existing]
+        merged.extend(refreshed_by_id.values())
+        return merged
 
-    request.app.state.TOOL_SERVERS = merged
+    redis = getattr(request.app.state, 'redis', None)
+    if redis is None:
+        existing = list(getattr(request.app.state, 'TOOL_SERVERS', None) or [])
+        request.app.state.TOOL_SERVERS = merge(existing)
+        return request.app.state.TOOL_SERVERS, refreshed_ids
 
-    try:
-        redis = getattr(request.app.state, 'redis', None)
-        if redis is not None:
-            await redis.set(f'{REDIS_KEY_PREFIX}:tool_servers', json.dumps(request.app.state.TOOL_SERVERS))
-    except Exception as e:
-        log.error(f'Error caching tool_servers to Redis: {e}')
+    cache_key = f'{REDIS_KEY_PREFIX}:tool_servers'
+    cached = await redis.get(cache_key)
+    existing = json.loads(cached) if cached else list(getattr(request.app.state, 'TOOL_SERVERS', None) or [])
+    request.app.state.TOOL_SERVERS = merge(existing)
+    await redis.set(cache_key, json.dumps(request.app.state.TOOL_SERVERS))
 
-    return request.app.state.TOOL_SERVERS
+    return request.app.state.TOOL_SERVERS, refreshed_ids
 
 
 async def get_tool_servers(request: Request):
@@ -1504,6 +1609,16 @@ async def get_tool_server_data(url: str, headers: dict | None) -> dict[str, Any]
     return res
 
 
+def get_tool_server_connection_key(idx: int, server: dict[str, Any]) -> str:
+    """Return a non-secret identity tying cached specs to a connection slot."""
+    info = server.get('info') or {}
+    server_id = info.get('id')
+    return json.dumps(
+        [idx, server.get('type', 'openapi'), str(server_id if server_id is not None else idx), server.get('url') or ''],
+        separators=(',', ':'),
+    )
+
+
 async def get_tool_servers_data(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # Prepare list of enabled servers along with their original index
 
@@ -1593,6 +1708,7 @@ async def get_tool_servers_data(servers: list[dict[str, Any]]) -> list[dict[str,
             {
                 'id': str(id),
                 'idx': idx,
+                'connection_key': get_tool_server_connection_key(idx, server),
                 'url': (server.get('url') or '').rstrip('/'),
                 'openapi': openapi_data,
                 'info': response.get('info'),
