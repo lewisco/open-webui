@@ -10,6 +10,7 @@ from open_webui.config import BannerModel
 from open_webui.env import AIOHTTP_CLIENT_SESSION_SSL, AIOHTTP_CLIENT_TIMEOUT, ENABLE_TOOL_SERVERS
 from open_webui.events import EVENTS, publish_event
 from open_webui.models.config import Config
+from open_webui.models.models import PromptSuggestion
 from open_webui.models.oauth_sessions import OAuthSessions
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.headers import bearer_auth_header, get_custom_headers
@@ -685,11 +686,6 @@ async def set_subagents_config(
         data={'enabled': values.get('ENABLE_SUBAGENTS')},
     )
     return values
-
-
-class PromptSuggestion(BaseModel):
-    title: list[str]
-    content: str
 
 
 class SetDefaultSuggestionsForm(BaseModel):

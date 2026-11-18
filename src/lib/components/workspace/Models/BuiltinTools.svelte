@@ -8,6 +8,7 @@
 
 	const i18n: Writable<i18nType> = getContext('i18n');
 
+	const optInTools = new Set(['visualizations', 'models']);
 	let toolLabels;
 	$: toolLabels = {
 		visualizations: {
@@ -97,6 +98,10 @@
 			description: $i18n.t('settings.admin.models.builtinTools.subagents.description'),
 			enabled: $config?.features?.enable_subagents
 		},
+		models: {
+			label: $i18n.t('settings.admin.models.builtinTools.models.label'),
+			description: $i18n.t('settings.admin.models.builtinTools.models.description')
+		},
 		skills: {
 			label: $i18n.t('settings.admin.models.builtinTools.skills.label'),
 			description: $i18n.t('settings.admin.models.builtinTools.skills.description')
@@ -120,11 +125,11 @@
 	export let builtinTools: Record<string, boolean> = {};
 	export let capabilities: Record<string, boolean> = {};
 	export let disabled = false;
-	$: enabledTools = allTools.filter((key) => builtinTools[key] ?? key !== 'visualizations');
+	$: enabledTools = allTools.filter((key) => builtinTools[key] ?? !optInTools.has(key));
 
 	const setBuiltinTool = (tool: keyof typeof toolLabels, checked: boolean) => {
 		builtinTools = { ...builtinTools };
-		if (tool === 'visualizations') {
+		if (optInTools.has(tool)) {
 			builtinTools[tool] = checked;
 		} else if (checked) {
 			delete builtinTools[tool];
@@ -168,7 +173,7 @@
 				<ModelSettingToggle
 					label={toolLabels[key].label}
 					description={toolLabels[key].description}
-					checked={builtinTools[key] ?? key !== 'visualizations'}
+					checked={builtinTools[key] ?? !optInTools.has(key)}
 					{disabled}
 					on:change={(e) => setBuiltinTool(key, e.detail)}
 				/>

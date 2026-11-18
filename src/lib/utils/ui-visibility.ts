@@ -44,6 +44,7 @@ export const CONTROL_LABELS = {
 	'model_editor.tools.calendar': 'settings.admin.models.builtinTools.calendar.label',
 	'model_editor.tools.subagents': 'settings.admin.models.builtinTools.subagents.label',
 	'model_editor.tools.visualizations': 'settings.admin.models.builtinTools.visualizations.label',
+	'model_editor.tools.models': 'settings.admin.models.builtinTools.models.label',
 	'model_editor.tools.skills': 'settings.admin.models.builtinTools.skills.label',
 	'model_editor.tools.tools': 'settings.admin.models.builtinTools.tools.label',
 	'chat.capture': 'Capture',

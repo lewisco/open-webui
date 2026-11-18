@@ -147,6 +147,11 @@ class ModelVoiceAvatar(BaseModel):
         return self
 
 
+class PromptSuggestion(BaseModel):
+    title: list[str]
+    content: str
+
+
 class ModelMeta(BaseModel):
     """Metadata for a workspace model entry (profile, description, tags, capabilities)."""
 
@@ -248,6 +253,7 @@ class ModelAccessListResponse(BaseModel):
 
 
 class ModelForm(BaseModel):
+    expected_version_id: str | None = Field(default=None, exclude=True)
     commit_message: str | None = None
 
     model_config = ConfigDict(extra='ignore')
@@ -709,6 +715,8 @@ class ModelsTable:
                 current = await session.get(Model, id, populate_existing=True)
                 if current is None:
                     return None
+                if 'expected_version_id' in model.model_fields_set and model.expected_version_id != current.version_id:
+                    raise HTTPException(409, {'code': 'version_conflict'})
                 await self._write_model(session, model, user_id or current.user_id, current, production_version_id)
                 await session.commit()
                 return await self._written_model(session, current)

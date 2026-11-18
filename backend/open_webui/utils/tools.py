@@ -45,6 +45,7 @@ from open_webui.models.config import Config
 from open_webui.models.groups import Groups
 from open_webui.models.tools import Tools
 from open_webui.models.users import UserModel
+from open_webui.tools import workspace_models
 from open_webui.tools.builtin import (
     add_memory,
     ask_user,
@@ -952,6 +953,14 @@ async def get_builtin_tools(
         ):
             builtin_functions.append(create_tool)
 
+    if is_builtin_tool_enabled('models', False) and (
+        user.get('role') == 'admin'
+        or await has_permission(user.get('id', ''), 'workspace.models', await Config.get('user.permissions'))
+    ):
+        builtin_functions.extend([workspace_models.list_models, workspace_models.view_model])
+        if not getattr(request.state, 'internal', False):
+            builtin_functions.extend([workspace_models.create_model, workspace_models.update_model])
+
     # Task management - break down complex work into trackable steps
     # Task state is stored on the chats row; local/channel IDs do not have one.
     if is_builtin_tool_enabled('tasks') and is_saved_chat_id(metadata.get('chat_id')):
@@ -998,6 +1007,7 @@ async def get_builtin_tools(
                 '__chat_id__': extra_params.get('__chat_id__'),
                 '__message_id__': extra_params.get('__message_id__'),
                 '__model_knowledge__': model_knowledge,
+                '__model_id__': model.get('id'),
             },
             get_builtin_function_introspection(func),
         )

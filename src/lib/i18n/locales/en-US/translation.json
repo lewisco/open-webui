@@ -3607,6 +3607,8 @@
 	"settings.admin.models.builtinTools.knowledge.label": "Knowledge Base",
 	"settings.admin.models.builtinTools.memory.description": "Search and manage user memories",
 	"settings.admin.models.builtinTools.memory.label": "Memory",
+	"settings.admin.models.builtinTools.models.description": "List, view, create, and edit workspace models",
+	"settings.admin.models.builtinTools.models.label": "Workspace models",
 	"settings.admin.models.builtinTools.notes.description": "Search, view, and manage user notes",
 	"settings.admin.models.builtinTools.notes.label": "Notes",
 	"settings.admin.models.builtinTools.notifications.description": "Send notifications to configured webhook targets",
