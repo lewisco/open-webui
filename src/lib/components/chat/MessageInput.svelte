@@ -675,16 +675,6 @@
 		if (canToggleTemporary) onTemporaryChange?.(!$temporary);
 	};
 
-	const workspaceCreateHandler = async (command: string) => {
-		prompt = '/' + command;
-		if (command === 'models:create' && !hasChatContent) {
-			prompt += ' ';
-			return;
-		}
-		await tick();
-		dispatch('submit', prompt);
-	};
-
 	const insertTextAtCursor = async (text: string) => {
 		const chatInput = document.getElementById(inputId);
 		if (!chatInput) return;
@@ -1729,6 +1719,22 @@
 						return;
 					}
 
+					if (props?.id === 'skills:create' || props?.id === 'models:create') {
+						const command = '/' + props.id;
+						if (props.id === 'models:create' && !hasChatContent) {
+							editor
+								.chain()
+								.focus()
+								.insertContentAt(range, { type: 'text', text: command + ' ' })
+								.run();
+						} else {
+							editor.chain().focus().deleteRange(range).run();
+							prompt = command;
+							void tick().then(() => dispatch('submit', command));
+						}
+						return;
+					}
+
 					if (
 						[
 							'compact',
@@ -1739,9 +1745,7 @@
 							'model',
 							'compare',
 							'settings',
-							'temporary',
-							'skills:create',
-							'models:create'
+							'temporary'
 						].includes(props?.id)
 					) {
 						editor.chain().focus().deleteRange(range).run();
@@ -1794,7 +1798,6 @@
 					onCompare: openComparison,
 					onSettings: () => showSettings.set(true),
 					onTemporary: temporaryHandler,
-					onWorkspaceCreate: workspaceCreateHandler,
 					onSelect: (e) => {
 						const { type, data } = e;
 

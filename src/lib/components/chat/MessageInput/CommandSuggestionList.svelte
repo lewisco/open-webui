@@ -31,7 +31,6 @@
 	export let onCompare: (() => void) | null = null;
 	export let onSettings: () => void = () => {};
 	export let onTemporary: () => void = () => {};
-	export let onWorkspaceCreate: (command: string) => void = () => {};
 	export let insertTextHandler: (text: string) => void = () => {};
 	export let canCompact: boolean | (() => boolean) = false;
 	export let compactDisabled: boolean | (() => boolean) = false;
@@ -179,7 +178,6 @@
 							onTemporary();
 						} else if (type === 'command' && ['skills:create', 'models:create'].includes(data.id)) {
 							command({ id: data.id, label: data.id });
-							onWorkspaceCreate(data.id);
 						} else if (type === 'skill') {
 							command({
 								id: `${data.id}|${data.name}`,
