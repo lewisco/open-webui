@@ -1,8 +1,8 @@
-"""Helpers for chat skill mentions and skill-authoring slash commands."""
+"""Helpers for chat skill mentions and workspace authoring slash commands."""
 
 import re
 
-from open_webui.utils.misc import get_content_from_message, set_last_user_message_content
+from open_webui.utils.misc import get_content_from_message
 
 
 # Match DB skill IDs and terminal skill IDs created by the $ picker.
@@ -37,7 +37,7 @@ def replace_skill_mentions_with_labels(text: str) -> str:
     return SKILL_MENTION_STRIP_RE.sub(lambda match: match.group(2) or match.group(4) or match.group(0), text)
 
 
-SKILLS_CREATE_RE = re.compile(r'^/skills:create(?:\s+(.*))?$', re.IGNORECASE | re.DOTALL)
+WORKSPACE_CREATE_RE = re.compile(r'^/(skills|models):create(?:\s+(.*))?$', re.IGNORECASE | re.DOTALL)
 
 OPEN_WEBUI_SKILL_AUTHORING_STANDARDS = """\
 Follow the Open WebUI skill-authoring standards:
@@ -145,27 +145,20 @@ def _build_skill_create_gate_prompt(reason: str = 'empty_chat') -> str:
     )
 
 
-def apply_skills_create_prompt(
-    messages: list[dict],
-    *,
-    allowed: bool,
-    denial_reason: str = 'empty_chat',
-) -> bool:
-    for message in reversed(messages):
-        if message.get('role') != 'user':
-            continue
-        text = get_content_from_message(message) or ''
-        match = SKILLS_CREATE_RE.match(text.strip())
-        if not match:
-            return False
-        set_last_user_message_content(
-            _build_skill_create_prompt(match.group(1) or '')
-            if allowed
-            else _build_skill_create_gate_prompt(denial_reason),
-            messages,
-        )
-        return True
-    return False
+def workspace_create_prompt(resource: str, request: str, *, allowed: bool, has_history: bool) -> str:
+    if resource == 'skills':
+        if not allowed or not has_history:
+            return _build_skill_create_gate_prompt('empty_chat' if allowed else 'disabled')
+        return _build_skill_create_prompt(request)
+    if not allowed:
+        return '[/models:create] Explain that workspace model creation is unavailable in this chat.'
+    return (
+        '[/models:create] Create a private Open WebUI workspace model using create_model. '
+        'Use the requested base model and put the requested behavior in params.system. '
+        'Use the conversation for context and ask for any missing requirements. '
+        'After a successful save, return the model name and editor link.\n\n'
+        + (request or 'Create a model for the task discussed in this conversation.')
+    )
 
 
 def strip_skill_mentions(messages: list[dict], skill_ids: set[str]) -> None:

@@ -4,7 +4,7 @@ from typing import Literal
 from urllib.parse import urlencode
 
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
 from open_webui.env import BYPASS_MODEL_ACCESS_CONTROL, ENABLE_FUNCTIONS
@@ -32,6 +32,7 @@ class ModelMetadataPatch(BaseModel):
     skillIds: list[str] | None = None
     knowledge: list[KnowledgeReference] | None = None
     filterIds: list[str] | None = None
+    defaultFilterIds: list[str] | None = None
     actionIds: list[str] | None = None
     builtinTools: dict[str, bool] | None = None
     capabilities: dict[str, bool] | None = None
@@ -45,6 +46,7 @@ class ModelParameterPatch(BaseModel):
     top_p: float | None = None
     top_k: int | None = None
     max_tokens: int | None = None
+    num_ctx: int | None = Field(default=None, gt=0, description='Ollama context window in tokens.')
     seed: int | None = None
     stop: list[str] | None = None
     frequency_penalty: float | None = None
@@ -64,7 +66,7 @@ async def _knowledge_name(item, request, user):
     return (await get_knowledge_by_id(item['id'], user, None)).name
 
 
-async def _validated_meta(meta, request, user):
+async def _validated_meta(meta, request, user, existing=None):
     from open_webui.routers.skills import authorized_skill
     from open_webui.routers.tools import get_tools
 
@@ -81,6 +83,12 @@ async def _validated_meta(meta, request, user):
             available = await Functions.get_active_function_ids_by_type(kind) if ENABLE_FUNCTIONS else []
             if set(patch[key]).difference(id for id, _ in available):
                 raise ValueError(f'{kind.capitalize()} unavailable')
+    if 'defaultFilterIds' in patch or 'filterIds' in patch:
+        selected = patch.get('filterIds', (existing or {}).get('filterIds')) or []
+        if 'defaultFilterIds' in patch and set(patch['defaultFilterIds']).difference(selected):
+            raise ValueError('Default filters must be selected filters')
+        if 'filterIds' in patch and 'defaultFilterIds' not in patch and existing and existing.get('defaultFilterIds'):
+            patch['defaultFilterIds'] = [id for id in existing['defaultFilterIds'] if id in selected]
     for item in patch.get('knowledge') or []:
         item['name'] = await _knowledge_name(item, request, user)
     return patch
@@ -110,7 +118,16 @@ async def _check_base(request, user, base_model_id):
         raise ValueError('Base model unavailable')
 
 
-def _saved_model(model):
+def _model_versions(metadata):
+    if metadata is None:
+        return {}
+    context = metadata.get('chat_context') or {}
+    metadata['chat_context'] = context
+    return context.setdefault('model_versions', {})
+
+
+def _saved_model(model, metadata):
+    _model_versions(metadata)[model['id']] = model['version_id']
     return JSONCodec.dumps({'id': model['id'], 'url': '/workspace/models/edit?' + urlencode({'id': model['id']})})
 
 
@@ -136,7 +153,7 @@ async def list_models(query: str = None, tag: str = None, page: int = 1, __user_
         return JSONCodec.dumps({'error': getattr(error, 'detail', str(error))})
 
 
-async def view_model(id: str, __user__: dict = None) -> str:
+async def view_model(id: str, __user__: dict = None, __metadata__: dict = None) -> str:
     """View a workspace model's configuration. Inference parameters and the system prompt require write access."""
     from open_webui.routers.models import get_model_by_id
 
@@ -144,6 +161,7 @@ async def view_model(id: str, __user__: dict = None) -> str:
         model = await get_model_by_id(id, UserModel(**__user__), None)
         if not model.base_model_id:
             raise ValueError('Select a workspace model')
+        _model_versions(__metadata__)[id] = model.version_id
         return JSONCodec.dumps(
             model.model_dump(
                 include={'id', 'name', 'base_model_id', 'params', 'meta', 'is_active', 'write_access', 'version_id'}
@@ -156,15 +174,18 @@ async def view_model(id: str, __user__: dict = None) -> str:
 async def create_model(
     id: str,
     name: str,
-    base_model_id: str,
+    base_model_id: str = None,
     params: ModelParameterPatch = None,
     meta: ModelMetadataPatch = None,
     __request__: Request = None,
     __user__: dict = None,
+    __model_id__: str = None,
+    __metadata__: dict = None,
 ) -> str:
     """Create a private workspace model based on an available provider model.
 
     :param id: New unique model ID.
+    :param base_model_id: Provider model ID. Defaults to the current chat model’s base.
     :param params: Inference parameters, including system for the system prompt.
     :param meta: Description, settings and accessible workspace attachments.
     """
@@ -172,6 +193,9 @@ async def create_model(
 
     try:
         user = UserModel(**__user__)
+        if base_model_id is None:
+            current = __request__.app.state.MODELS.get(__model_id__) or {}
+            base_model_id = (current.get('info') or {}).get('base_model_id') or __model_id__
         await _check_base(__request__, user, base_model_id)
         if id in __request__.app.state.MODELS:
             raise ValueError('Model ID already in use')
@@ -183,7 +207,7 @@ async def create_model(
             params=ModelParameterPatch.model_validate(params or {}).model_dump(exclude_unset=True),
             meta=await _validated_meta(meta, __request__, user),
         )
-        return _saved_model(await create_new_model(__request__, form, user, None))
+        return _saved_model(await create_new_model(__request__, form, user, None), __metadata__)
     except Exception as error:
         return JSONCodec.dumps({'error': getattr(error, 'detail', str(error))})
 
@@ -199,6 +223,7 @@ async def update_model(
     __request__: Request = None,
     __user__: dict = None,
     __model_id__: str = None,
+    __metadata__: dict = None,
 ) -> str:
     """Update selected fields on a writable workspace model and save a version. Lists replace the corresponding list.
 
@@ -225,7 +250,7 @@ async def update_model(
                 raise ValueError('A model cannot be its own base')
             await _check_base(__request__, user, base_model_id)
         metadata = model.meta.model_dump()
-        changes = await _validated_meta(meta, __request__, user)
+        changes = await _validated_meta(meta, __request__, user, metadata)
         for key in ('builtinTools', 'capabilities'):
             if isinstance(changes.get(key), dict):
                 changes[key] = {**(metadata.get(key) or {}), **changes[key]}
@@ -238,9 +263,9 @@ async def update_model(
                 **model.params.model_dump(),
                 **ModelParameterPatch.model_validate(params or {}).model_dump(exclude_unset=True),
             },
-            expected_version_id=model.version_id if version_id is None else version_id,
+            expected_version_id=version_id or _model_versions(__metadata__).get(id, model.version_id),
             commit_message=commit_message,
         )
-        return _saved_model(await update_model_by_id(__request__, form, user, None))
+        return _saved_model(await update_model_by_id(__request__, form, user, None), __metadata__)
     except Exception as error:
         return JSONCodec.dumps({'error': getattr(error, 'detail', str(error))})

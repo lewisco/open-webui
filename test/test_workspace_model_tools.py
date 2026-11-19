@@ -41,6 +41,7 @@ async def exercise_model_tools():
     from open_webui.models.tools import ToolForm, Tools
     from open_webui.models.users import Users
     from open_webui.utils.middleware import execute_tool_call
+    from open_webui.utils.skills import WORKSPACE_CREATE_RE, workspace_create_prompt
     from open_webui.utils.tools import get_builtin_tools
 
     admin, owner, reader, outsider = [
@@ -60,7 +61,7 @@ async def exercise_model_tools():
     async def registry(user, enabled=None, current='authoring-model'):
         return await get_builtin_tools(
             request,
-            {'__user__': user.model_dump()},
+            {'__user__': user.model_dump(), '__metadata__': {}},
             model={'id': current, 'info': {'meta': {'builtinTools': {'models': enabled}}}}
             if enabled is not None
             else {'id': current},
@@ -71,6 +72,14 @@ async def exercise_model_tools():
             {}, {'tools': tools}, None, {'name': tool, 'arguments': json.dumps(args)}
         )
         return json.loads(result) if isinstance(result, str) and result.startswith('{') else result
+
+    assert WORKSPACE_CREATE_RE.fullmatch('/models:create A navigator').groups() == ('models', 'A navigator')
+    assert WORKSPACE_CREATE_RE.fullmatch('/skills:create').groups() == ('skills', None)
+    assert not WORKSPACE_CREATE_RE.fullmatch('/models:create-extra')
+    assert 'A navigator' in workspace_create_prompt('models', 'A navigator', allowed=True, has_history=False)
+    assert 'unavailable' in workspace_create_prompt('models', '', allowed=False, has_history=True)
+    assert 'prior real content' in workspace_create_prompt('skills', '', allowed=True, has_history=False)
+    assert 'permission' in workspace_create_prompt('skills', '', allowed=False, has_history=True)
 
     names = {'create_model', 'update_model', 'list_models', 'view_model'}
     assert names.isdisjoint(await registry(admin, enabled=False))
@@ -106,6 +115,7 @@ async def exercise_model_tools():
         ],
         'filterIds': ['filter'],
         'actionIds': ['action'],
+        'defaultFilterIds': ['filter'],
         'suggestion_prompts': [{'title': ['Intake', 'Open a ticket'], 'content': 'Start intake'}],
     }
     saved = await call(
@@ -135,6 +145,7 @@ async def exercise_model_tools():
         assert 'error' in denied, denied
     for key in ('actionIds', 'filterIds'):
         assert 'error' in await call(tools, 'update_model', id=model_id, meta={key: ['missing']})
+    assert 'error' in await call(tools, 'update_model', id=model_id, meta={'defaultFilterIds': ['missing']})
     assert len(await ModelHistories.get_history_by_model_id(model_id)) == 1
     await Models.toggle_model_by_id(model_id)
     assert (
@@ -156,9 +167,19 @@ async def exercise_model_tools():
     assert {g.permission for g in changed.access_grants} == {'read', 'write'} and changed.user_id == owner.id
     stale = await call(tools, 'update_model', id=model_id, name='Stale edit', version_id=model.version_id)
     assert stale == {'error': {'code': 'version_conflict'}}
+    assert await call(tools, 'update_model', id=model_id, name='Stale edit') == stale
     assert (await Models.get_model_by_id(model_id)).version_id == changed.version_id
     history = await ModelHistories.get_history_by_model_id(model_id)
     assert len(history) == 2 and any(h.commit_message == 'Clarify intake' and h.user_id == reader.id for h in history)
+
+    assert (await call(tools, 'view_model', id=model_id))['version_id'] == changed.version_id
+    assert await call(tools, 'update_model', id=model_id, meta={'filterIds': []}) == saved
+    assert (await Models.get_model_by_id(model_id)).meta.defaultFilterIds == []
+    app.state.MODELS['preset'] = {'id': 'preset', 'preset': True, 'info': {'base_model_id': 'base'}}
+    for current in ('base', 'preset'):
+        id = f'from-{current}'
+        assert (await call(await registry(owner, current=current), 'create_model', id=id, name=id))['id'] == id
+        assert (await Models.get_model_by_id(id)).base_model_id == 'base'
 
 
 if __name__ == '__main__':

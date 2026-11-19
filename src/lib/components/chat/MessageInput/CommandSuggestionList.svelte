@@ -31,7 +31,7 @@
 	export let onCompare: (() => void) | null = null;
 	export let onSettings: () => void = () => {};
 	export let onTemporary: () => void = () => {};
-	export let onCreateSkill: () => void = () => {};
+	export let onWorkspaceCreate: (command: string) => void = () => {};
 	export let insertTextHandler: (text: string) => void = () => {};
 	export let canCompact: boolean | (() => boolean) = false;
 	export let compactDisabled: boolean | (() => boolean) = false;
@@ -43,6 +43,7 @@
 	export let canTemporary: boolean | (() => boolean) = false;
 	export let temporaryEnabled: boolean | (() => boolean) = false;
 	export let hasChatContent = false;
+	export let canCreateModel: boolean | (() => boolean) = false;
 	export let canCreateSkill: boolean | (() => boolean) = false;
 	export let contextUsage = null;
 	export let fileUploadEnabled: boolean | (() => boolean) = true;
@@ -58,6 +59,8 @@
 	$: temporaryAvailable = typeof canTemporary === 'function' ? canTemporary() : canTemporary;
 	$: isTemporaryEnabled =
 		typeof temporaryEnabled === 'function' ? temporaryEnabled() : temporaryEnabled;
+	$: createModelAvailable =
+		typeof canCreateModel === 'function' ? canCreateModel() : canCreateModel;
 	$: createSkillAvailable =
 		typeof canCreateSkill === 'function' ? canCreateSkill() : canCreateSkill;
 	$: resolvedContextUsage = typeof contextUsage === 'function' ? contextUsage() : contextUsage;
@@ -136,6 +139,7 @@
 					{contextHasThreshold}
 					{hasChatContent}
 					canCreateSkill={createSkillAvailable}
+					canCreateModel={createModelAvailable}
 					onSelect={(e) => {
 						const { type, data } = e;
 
@@ -173,9 +177,9 @@
 						} else if (type === 'command' && data.id === 'temporary') {
 							command({ id: data.id, label: data.id });
 							onTemporary();
-						} else if (type === 'command' && data.id === 'skills:create') {
+						} else if (type === 'command' && ['skills:create', 'models:create'].includes(data.id)) {
 							command({ id: data.id, label: data.id });
-							onCreateSkill();
+							onWorkspaceCreate(data.id);
 						} else if (type === 'skill') {
 							command({
 								id: `${data.id}|${data.name}`,

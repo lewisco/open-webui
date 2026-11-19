@@ -675,8 +675,12 @@
 		if (canToggleTemporary) onTemporaryChange?.(!$temporary);
 	};
 
-	const createSkillHandler = async () => {
-		prompt = '/skills:create';
+	const workspaceCreateHandler = async (command: string) => {
+		prompt = '/' + command;
+		if (command === 'models:create' && !hasChatContent) {
+			prompt += ' ';
+			return;
+		}
 		await tick();
 		dispatch('submit', prompt);
 	};
@@ -948,6 +952,12 @@
 		(id) =>
 			(modelCapabilitiesById[id]?.builtin_tools ?? true) &&
 			($models.find((model) => model.id === id)?.info?.meta?.builtinTools?.skills ?? true)
+	);
+	let canCreateModel: boolean = false;
+	$: canCreateModel = selectedModelIds.every(
+		(id) =>
+			(modelCapabilitiesById[id]?.builtin_tools ?? true) &&
+			($models.find((model) => model.id === id)?.info?.meta?.builtinTools?.models ?? true)
 	);
 
 	let toggleFilters = [];
@@ -1730,7 +1740,8 @@
 							'compare',
 							'settings',
 							'temporary',
-							'skills:create'
+							'skills:create',
+							'models:create'
 						].includes(props?.id)
 					) {
 						editor.chain().focus().deleteRange(range).run();
@@ -1767,6 +1778,7 @@
 					canTemporary: () => canToggleTemporary,
 					hasChatContent: hasChatContent,
 					canCreateSkill: () => canCreateSkill,
+					canCreateModel: () => canCreateModel,
 					temporaryEnabled: () => $temporary === true,
 					contextUsage: () => statusContextUsage,
 					onCompact: compactHandler,
@@ -1782,7 +1794,7 @@
 					onCompare: openComparison,
 					onSettings: () => showSettings.set(true),
 					onTemporary: temporaryHandler,
-					onCreateSkill: createSkillHandler,
+					onWorkspaceCreate: workspaceCreateHandler,
 					onSelect: (e) => {
 						const { type, data } = e;
 

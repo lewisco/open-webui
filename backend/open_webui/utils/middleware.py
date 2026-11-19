@@ -149,7 +149,8 @@ from open_webui.utils.response import (
 )
 from open_webui.utils.sanitize import sanitize_code
 from open_webui.utils.skills import (
-    apply_skills_create_prompt,
+    WORKSPACE_CREATE_RE,
+    workspace_create_prompt,
     extract_skill_ids_from_messages,
     has_prior_user_message,
     replace_skill_mentions_with_labels,
@@ -1895,10 +1896,11 @@ async def load_messages_from_db(chat_id: str, message_id: str) -> Optional[list[
         return None
 
     for msg in db_messages:
-        skills_create = (msg.get('meta') or {}).get('skills_create')
+        meta = msg.get('meta') or {}
+        expansion = meta.get('workspace_create') or meta.get('skills_create')
         # Replay the saved expansion unless the user edited the message.
-        if skills_create and skills_create.get('original_text') == get_content_from_message(msg):
-            set_last_user_message_content(skills_create['expanded_text'], [msg])
+        if expansion and expansion.get('original_text') == get_content_from_message(msg):
+            set_last_user_message_content(expansion['expanded_text'], [msg])
 
     return [
         {k: v for k, v in msg.items() if k in MESSAGE_REPLAY_KEYS} for msg in db_messages if not is_empty_reply(msg)
@@ -2457,40 +2459,41 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     files = form_data.pop('files', None)
     form_data.pop('folder_id', None)
     metadata['terminal_id'] = terminal_id
-    can_author_skills = (
-        use_builtin_tools
-        and (model.get('info', {}).get('meta', {}).get('builtinTools') or {}).get('skills', True)
-        and (
-            user.role == 'admin'
-            or await has_permission(user.id, 'workspace.skills', await Config.get('user.permissions'))
+    messages = form_data['messages']
+    command = WORKSPACE_CREATE_RE.fullmatch((get_last_user_message(messages) or '').strip())
+    if command:
+        resource, description = command.groups()
+        resource = resource.lower()
+        allowed = (
+            use_builtin_tools
+            and payload_tools is None
+            and (model.get('info', {}).get('meta', {}).get('builtinTools') or {}).get(resource, True)
+            and (resource != 'models' or not getattr(request.state, 'internal', False))
+            and (
+                user.role == 'admin'
+                or await has_permission(user.id, f'workspace.{resource}', await Config.get('user.permissions'))
+            )
         )
-    )
-    skill_authoring_allowed = can_author_skills and has_prior_user_message(form_data.get('messages', []))
-    skill_create_denial_reason = 'empty_chat' if can_author_skills else 'disabled'
-    if (
-        apply_skills_create_prompt(
-            form_data.get('messages', []),
-            allowed=skill_authoring_allowed,
-            denial_reason=skill_create_denial_reason,
+        expanded = workspace_create_prompt(
+            resource, description or '', allowed=allowed, has_history=has_prior_user_message(messages)
         )
-        and is_saved_chat_id(chat_id)
-        and user_message_id
-    ):
-        stored_message = await Chats.get_message_by_id_and_message_id(chat_id, user_message_id) or {}
-        await Chats.upsert_message_to_chat_by_id_and_message_id(
-            chat_id,
-            user_message_id,
-            {
-                'meta': {
-                    **(stored_message.get('meta') or {}),
-                    'skills_create': {
-                        'original_text': get_content_from_message(stored_message),
-                        'expanded_text': get_last_user_message(form_data['messages']),
-                    },
-                }
-            },
-            touch=False,
-        )
+        set_last_user_message_content(expanded, messages)
+        if is_saved_chat_id(chat_id) and user_message_id:
+            stored_message = await Chats.get_message_by_id_and_message_id(chat_id, user_message_id) or {}
+            await Chats.upsert_message_to_chat_by_id_and_message_id(
+                chat_id,
+                user_message_id,
+                {
+                    'meta': {
+                        **(stored_message.get('meta') or {}),
+                        'workspace_create': {
+                            'original_text': get_content_from_message(stored_message),
+                            'expanded_text': expanded,
+                        },
+                    }
+                },
+                touch=False,
+            )
 
     # If the original caller provided tools, use them as-is (skip resolution).
     # Otherwise, save any tools that filter inlets added for merging later.
