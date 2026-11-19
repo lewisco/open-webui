@@ -108,6 +108,7 @@ async def exercise_model_tools():
         'toolIds': ['sample'],
         'skillIds': ['skill'],
         'capabilities': {'vision': False},
+        'defaultFeatureIds': ['code_interpreter'],
         'knowledge': [
             {'type': 'collection', 'id': kb.id},
             {'type': 'file', 'id': file.id},
@@ -119,11 +120,16 @@ async def exercise_model_tools():
         'suggestion_prompts': [{'title': ['Intake', 'Open a ticket'], 'content': 'Start intake'}],
     }
     saved = await call(
-        tools, 'create_model', **args, params={'system': 'Ask for a ticket', 'temperature': 0.2}, meta=meta
+        tools,
+        'create_model',
+        **args,
+        params={'system': 'Ask for a ticket', 'temperature': 0.2, 'function_calling': 'native'},
+        meta=meta,
     )
     assert saved == {'id': model_id, 'url': '/workspace/models/edit?id=support%2Fa%26b'}, saved
     model = await Models.get_model_by_id(model_id)
     assert model.access_grants == [] and model.is_active
+    assert model.params.function_calling == 'native' and model.meta.defaultFeatureIds == ['code_interpreter']
     assert [item['name'] for item in model.meta.knowledge] == ['Manual', 'manual.txt', 'Intake']
     assert model.meta.filterIds == ['filter'] and model.meta.actionIds == ['action']
     assert (await call(tools, 'list_models', tag='ops', query='Support'))['total'] == 1
@@ -146,6 +152,7 @@ async def exercise_model_tools():
     for key in ('actionIds', 'filterIds'):
         assert 'error' in await call(tools, 'update_model', id=model_id, meta={key: ['missing']})
     assert 'error' in await call(tools, 'update_model', id=model_id, meta={'defaultFilterIds': ['missing']})
+    assert 'error' in await call(tools, 'update_model', id=model_id, meta={'capabilities': {'function_calling': True}})
     assert len(await ModelHistories.get_history_by_model_id(model_id)) == 1
     await Models.toggle_model_by_id(model_id)
     assert (
@@ -153,7 +160,7 @@ async def exercise_model_tools():
             viewer,
             'update_model',
             id=model_id,
-            params={'system': 'Ask for the ticket number first'},
+            params={'system': 'Ask for the ticket number first', 'function_calling': 'legacy'},
             meta={'capabilities': {'memory': False}},
             commit_message='Clarify intake',
         )
@@ -161,6 +168,7 @@ async def exercise_model_tools():
     )
     changed = await Models.get_model_by_id(model_id)
     assert not changed.is_active
+    assert changed.params.function_calling == 'legacy' and changed.meta.defaultFeatureIds == ['code_interpreter']
     assert changed.params.temperature == 0.2 and changed.params.system == 'Ask for the ticket number first'
     assert changed.meta.capabilities == {'vision': False, 'memory': False}
     assert changed.meta.knowledge == model.meta.knowledge and changed.meta.toolIds == ['sample']

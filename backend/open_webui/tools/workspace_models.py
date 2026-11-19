@@ -36,12 +36,18 @@ class ModelMetadataPatch(BaseModel):
     actionIds: list[str] | None = None
     builtinTools: dict[str, bool] | None = None
     capabilities: dict[str, bool] | None = None
-    defaultFeatureIds: list[str] | None = None
+    defaultFeatureIds: list[str] | None = Field(
+        default=None,
+        description='Features switched on in new chats, e.g. ["code_interpreter"]. Capabilities control availability.',
+    )
 
 
 class ModelParameterPatch(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     system: str | None = None
+    function_calling: Literal['native', 'legacy'] | None = Field(
+        default=None, description='Function Calling mode from the model editor.'
+    )
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
@@ -71,6 +77,8 @@ async def _validated_meta(meta, request, user, existing=None):
     from open_webui.routers.tools import get_tools
 
     patch = ModelMetadataPatch.model_validate(meta or {}).model_dump(exclude_none=True)
+    if 'function_calling' in (patch.get('capabilities') or {}):
+        raise ValueError('Set params.function_calling to native or legacy.')
     if patch.get('toolIds'):
         tools = await get_tools(request, user=user, db=None)
         if set(patch['toolIds']).difference(tool.id for tool in tools):
