@@ -8,7 +8,6 @@
 
 	const i18n: Writable<i18nType> = getContext('i18n');
 
-	const optInTools = new Set(['visualizations', 'models']);
 	let toolLabels;
 	$: toolLabels = {
 		visualizations: {
@@ -125,11 +124,11 @@
 	export let builtinTools: Record<string, boolean> = {};
 	export let capabilities: Record<string, boolean> = {};
 	export let disabled = false;
-	$: enabledTools = allTools.filter((key) => builtinTools[key] ?? !optInTools.has(key));
+	$: enabledTools = allTools.filter((key) => builtinTools[key] ?? key !== 'visualizations');
 
 	const setBuiltinTool = (tool: keyof typeof toolLabels, checked: boolean) => {
 		builtinTools = { ...builtinTools };
-		if (optInTools.has(tool)) {
+		if (tool === 'visualizations') {
 			builtinTools[tool] = checked;
 		} else if (checked) {
 			delete builtinTools[tool];
@@ -173,7 +172,7 @@
 				<ModelSettingToggle
 					label={toolLabels[key].label}
 					description={toolLabels[key].description}
-					checked={builtinTools[key] ?? !optInTools.has(key)}
+					checked={builtinTools[key] ?? key !== 'visualizations'}
 					{disabled}
 					on:change={(e) => setBuiltinTool(key, e.detail)}
 				/>

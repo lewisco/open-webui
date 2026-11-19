@@ -57,11 +57,13 @@ async def exercise_model_tools():
     for id, user in [('base', owner), ('private-base', admin)]:
         await Models.insert_new_model(ModelForm(id=id, name=id, params={}, meta={}), user.id)
 
-    async def registry(user, enabled=True, current='authoring-model'):
+    async def registry(user, enabled=None, current='authoring-model'):
         return await get_builtin_tools(
             request,
             {'__user__': user.model_dump()},
-            model={'id': current, 'info': {'meta': {'builtinTools': {'models': True} if enabled else {}}}},
+            model={'id': current, 'info': {'meta': {'builtinTools': {'models': enabled}}}}
+            if enabled is not None
+            else {'id': current},
         )
 
     async def call(tools, tool, **args):

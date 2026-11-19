@@ -953,7 +953,7 @@ async def get_builtin_tools(
         ):
             builtin_functions.append(create_tool)
 
-    if is_builtin_tool_enabled('models', False) and (
+    if is_builtin_tool_enabled('models') and (
         user.get('role') == 'admin'
         or await has_permission(user.get('id', ''), 'workspace.models', await Config.get('user.permissions'))
     ):
